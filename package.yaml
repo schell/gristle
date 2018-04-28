@@ -1,0 +1,52 @@
+name:                gristle
+version:             0.1.0.0
+github:              "schell/gristle"
+license:             BSD3
+author:              "Schell Scivally"
+maintainer:          "efsubenovex@gmail.com"
+copyright:           "2018 Schell Scivally"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/schell/gristle#readme>
+
+dependencies:
+- base          >= 4.7 && < 5
+- data-fix
+- doctest
+- mtl
+- prettyclass
+
+library:
+  source-dirs: src
+
+executables:
+  gristle-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - gristle
+
+tests:
+  gristle-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - gristle

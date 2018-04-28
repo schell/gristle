@@ -1,0 +1,7 @@
+- patterns:
+  - .*\.hs$
+  excludes:
+  - \#
+  - flycheck
+  commands:
+  - stack exec doctest -- \0
