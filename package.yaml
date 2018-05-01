@@ -22,9 +22,12 @@ description:         Please see the README on Github at <https://github.com/sche
 dependencies:
 - base          >= 4.7 && < 5
 - data-fix
-- doctest
+- doctest       >= 0.15
 - mtl
 - prettyclass
+- lens
+#- ixmonad
+#- rebindable
 
 library:
   source-dirs: src
