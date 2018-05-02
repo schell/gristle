@@ -1,8 +1,10 @@
 {-# LANGUAGE AllowAmbiguousTypes        #-}
+{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE KindSignatures             #-}
@@ -19,8 +21,9 @@ module Gristle.Syntax where
 
 import           Control.Arrow                                ((&&&), (<<<),
                                                                (>>>))
-import           Control.Monad.State                          (State, gets,
-                                                               modify, runState)
+import           Control.Monad.State                          (State, get, gets,
+                                                               modify, put,
+                                                               runState)
 import           Data.Char                                    (toLower)
 import           Data.Fix                                     (Fix (..), cata,
                                                                cataM, hylo)
@@ -29,40 +32,69 @@ import           Data.Monoid                                  (Monoid (..),
 import           Data.Proxy                                   (Proxy (..))
 import           Data.Ratio                                   (denominator,
                                                                numerator)
+import           Data.Type.Bool
 import           Data.Type.Equality
+import           Data.Typeable                                (Typeable, eqT)
 import           GHC.TypeLits
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
                                                                cat, comma, hsep,
                                                                parens,
                                                                prettyShow,
-                                                               punctuate,
-                                                               render, semi,
+                                                               punctuate, semi,
                                                                text, (<+>))
 import qualified "prettyclass" Text.PrettyPrint.HughesPJClass as PP
 
 
 -- $setup
 -- >>> :set -XTypeApplications -XDataKinds -XFlexibleContexts
--- >>> :set -XAllowAmbiguousTypes
+-- >>> :set -XAllowAmbiguousTypes -XTypeFamilies
 
 
 gPrint :: Pretty a => a -> IO ()
 gPrint = putStrLn . prettyShow
 
 
-data Lit = LitBool Bool
-         | LitFloat Float
-         | LitInt Int
-         deriving (Show, Eq, Ord)
+--------------------------------------------------------------------------------
+-- Literals
+--------------------------------------------------------------------------------
+data Lit t = LitBool Bool
+           | LitFloat Float
+           | LitInt Int
+           deriving (Show, Eq, Ord)
 
 
-instance Pretty Lit where
+castLit :: Lit a -> Lit b
+castLit = \case (LitBool b)  -> LitBool b
+                (LitFloat f) -> LitFloat f
+                (LitInt i)   -> LitInt i
+
+
+instance Pretty (Lit t) where
   pPrint (LitBool b)  = text $ map toLower $ show $ b
   pPrint (LitFloat f) = PP.float f
   pPrint (LitInt i)   = PP.int i
 
 
-data Expr t a = Literal Lit
+type family IsLiteralType t where
+  IsLiteralType Word   = True
+  IsLiteralType Int    = True
+  IsLiteralType Float  = True
+  IsLiteralType Double = True
+  IsLiteralType Bool   = True
+
+
+type IsLit t = (Typeable t, IsLiteralType t ~ 'True)
+
+
+lit :: forall t. IsLit t => t -> Lit t
+lit n | Just (Refl :: t :~: Word  ) <- eqT = LitInt $ fromIntegral n
+      | Just (Refl :: t :~: Int   ) <- eqT = LitInt n
+      | Just (Refl :: t :~: Float ) <- eqT = LitFloat n
+      | Just (Refl :: t :~: Double) <- eqT = LitFloat $ realToFrac n
+      | Just (Refl :: t :~: Bool  ) <- eqT = LitBool n
+
+
+data Expr t a = Literal (Lit t)
               -- ^ A literal value.
               | Ident String
               -- ^ A name for something like a variable or a function.
@@ -78,22 +110,28 @@ data Expr t a = Literal Lit
 
 
 --------------------------------------------------------------------------------
--- Terms!
+-- Values!
 --------------------------------------------------------------------------------
-type Term  = Fix
-type Value t = Term (Expr t)
+type Value t = Fix (Expr t)
+
+
+-- | Create a literal value from a couple valid types.
+--
+-- >>> gPrint $ litVal @Float 0
+-- 0.0
+--
+-- >>> gPrint $ litVal 0.0
+-- 0.0
+litVal :: IsLit t => t -> Value t
+litVal = Fix . Literal . lit
 
 
 floatVal :: Float -> Value Float
-floatVal = Fix . Literal . LitFloat
+floatVal = litVal
 
 
 intVal :: Int -> Value Int
-intVal = Fix . Literal . LitInt
-
-
-boolVal :: Bool -> Value Bool
-boolVal = Fix . Literal . LitBool
+intVal = litVal
 
 
 -- | GLSL's "false".
@@ -101,7 +139,7 @@ boolVal = Fix . Literal . LitBool
 -- >>> gPrint false
 -- false
 false :: Value Bool
-false = boolVal False
+false = litVal False
 
 
 -- | GLSL's "true".
@@ -109,12 +147,12 @@ false = boolVal False
 -- >>> gPrint true
 -- true
 true :: Value Bool
-true = boolVal True
+true = litVal True
 
 
--- | This feels wrong.
+-- | This feels wrong. It's my body oh well.
 castExpr :: forall y x a. Expr x a -> Expr y a
-castExpr = \case Literal a       -> Literal a
+castExpr = \case Literal a       -> Literal $ castLit a
                  Ident str       -> Ident str
                  Unary str a     -> Unary str a
                  InfixOp str a b -> InfixOp str a b
@@ -126,12 +164,12 @@ term2Expr :: forall x y. Value y -> Expr x (Value y)
 term2Expr = castExpr . unFix
 
 
-expr2Term :: forall y x. Expr x (Value y) -> Value y
-expr2Term = Fix . castExpr
+expr2Value :: forall y x. Expr x (Value y) -> Value y
+expr2Value = Fix . castExpr
 
 
 cast :: Value x -> Value y
-cast = hylo expr2Term term2Expr
+cast = hylo expr2Value term2Expr
 
 
 -- | Cast from some Num type to an "int".
@@ -150,12 +188,12 @@ float :: Num t => Value t -> Value Float
 float = Fix . Unary "float" . cast
 
 
---instance Pretty (Value t) where
---  pPrint = pPrint . unFix
-
-
 ident :: String -> Value t
 ident = Fix . Ident
+
+
+declaration :: String -> String -> Value t
+declaration link name = ident $ unwords [link, name]
 
 
 infx :: String -> Value x -> Value y -> Value z
@@ -182,49 +220,55 @@ apply :: Value (x -> y) -> Value x -> Value y
 apply = undefined
 
 
----- | Variable assignment without declaration.
-----
----- >>> gPrint $ ident "somevar" `assign` floatVal 10
----- somevar = 10.0
---assign :: Value t -> Value t -> Value ()
---assign a b = cast $ infx "=" a b
+-- | Variable assignment without declaration.
 --
---
--- | Terms can be expressed with numbers and operations on numbers.
+-- >>> gPrint $ ident "somevar" `assign` floatVal 10
+-- somevar = 10.0
+assign :: Value t -> Value t -> Value ()
+assign a b = cast $ infx "=" a b
+
+
+-- | Values can be expressed with numbers and operations on numbers.
 --
 -- >>> gPrint $ floatVal 0 + floatVal 1
 -- (0.0 + 1.0)
 --
 -- >>> gPrint $ abs $ floatVal (-666)
 -- abs(-666.0)
-instance Num t => Num (Value t) where
+--
+-- >>> gPrint $ abs (0 :: Value Float)
+-- abs(0.0)
+--
+-- >>> gPrint $ abs (0 :: Value Int)
+-- abs(0)
+instance (IsLit t, Num t) => Num (Value t) where
   (+)         = infx "+"
   (-)         = infx "-"
   (*)         = infx "*"
   abs         = call (ident "abs") . pure
   signum      = call (ident "signum") . pure
-  fromInteger = Fix . Literal . LitInt . fromIntegral
+  fromInteger = Fix . Literal . lit . fromIntegral
 
 
--- | Terms can be expressed with fractions!
+-- | Values can be expressed with fractions!
 --
 -- >>> gPrint $ floatVal 20 / floatVal 6
 -- (20.0 / 6.0)
-instance Fractional t => Fractional (Value t) where
-  fromRational r = Fix $ Literal $ LitFloat $ (/) (fromIntegral $ numerator r)
-                                                  (fromIntegral $ denominator r)
+instance (Fractional t, IsLit t) => Fractional (Value t) where
+  fromRational r = Fix $ Literal $ lit @t $ (/) (fromIntegral $ numerator r)
+                                                (fromIntegral $ denominator r)
   (/)            = infx "/"
 
 
--- | Terms can be expressed with floating point operations:
+-- | Values can be expressed with floating point operations:
 --
 -- >>> gPrint $ pi @(Value Float)
 -- 3.1415927
 --
 -- >>> gPrint $ floatVal 2 ** floatVal 4
 -- pow(2.0, 4.0)
-instance Floating t => Floating (Value t) where
-  pi     = Fix $ Literal $ LitFloat pi
+instance (Floating t, IsLit t) => Floating (Value t) where
+  pi     = Fix $ Literal $ lit @t pi
   exp    = call (ident "exp")   . pure
   log    = call (ident "log")   . pure
   sin    = call (ident "sin")   . pure
@@ -241,24 +285,9 @@ instance Floating t => Floating (Value t) where
 
 
 -- | A paramorphism.
--- Traverse the structure folding an `a` with it.
 para :: Functor f => (Fix f -> f a -> a) -> Fix f -> a
 para r t = r t $ fmap (para r) $ unFix t
 
-
-paraExpr :: (Value t -> Expr t a -> a) -> Value t -> a
-paraExpr = para
-
-
----- | Hello
----- >>> go $ Fix $ Call (ident "blah") $ intVal 0
----- ()
---go = paraExpr $ \val -> \case
---  Call fn a ->
---  expr      -> [pPrint val]
-
-
---paramDocs = fmap (pure . pPrint) . unFix
 
 
 -- | Pretty printing an Expr prints out its GLSL code.
@@ -285,9 +314,10 @@ instance Pretty (Value t) where
                                                    $ map pPrint as
                                           ]
 
-----------------------------------------------------------------------------------
----- Vectors
-----------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Vectors
+--------------------------------------------------------------------------------
 data Vec (n :: Nat) t
 
 
@@ -296,8 +326,7 @@ type family VecPrefix t where
   VecPrefix Int     = "i"
   VecPrefix Integer = "i"
   VecPrefix Word    = "u"
-  VecPrefix Float   = ""
-  VecPrefix Double  = ""
+  VecPrefix t       = ""
 
 
 -- | Create a vec2.
@@ -398,10 +427,16 @@ type family TupleOf (n :: Nat) t where
 --     c = vec4 8 9 0 1
 --     m :: Value (Mat 3 4)
 --     m = mat3 a b c
---     (x,y,z) = decomp m
--- in gPrint (a, b, c) >> gPrint (x, y, z)
+--     (_, _, z) = decomp m
+-- in gPrint z
 -- >>> :}
--- ()
+-- mat3x4(vec4(0.0, 1.0, 2.0, 3.0), vec4(4.0, 5.0, 6.0, 7.0), vec4(8.0, 9.0, 0.0, 1.0))[2]
+--
+-- >>> :{
+-- gPrint $ decomp $ vec3 true false true
+-- >>> :}
+-- (bvec3(true, false, true)[0], bvec3(true, false, true)[1],
+--  bvec3(true, false, true)[2])
 class ComponentsOf thing where
   type ComponentType thing
   type NumberOfComponents thing :: Nat
@@ -417,40 +452,70 @@ instance (KnownNat n, 2 <= n, n <= 4) => ComponentsOf (Value (Vec (n :: Nat) t))
     | Just Refl <- sameNat (Proxy @n) (Proxy @4) = (v `atIndex` 0, v `atIndex` 1, v `atIndex` 2, v `atIndex` 3)
 
 
---instance ( KnownNat n
---         , 2 <= n, n <= 4
---         , 2 <= m, m <= 4
---         ) => ComponentsOf (Value (Mat (n :: Nat) (m :: Nat))) where
---  type ComponentType (Value (Mat n m)) = Value (Vec m Float)
---  type NumberOfComponents (Value (Mat n m)) = n
---  decomp v
---    | Just Refl <- sameNat (Proxy @n) (Proxy @2) = (v `atIndex` 0, v `atIndex` 1)
---    | Just Refl <- sameNat (Proxy @n) (Proxy @3) = (v `atIndex` 0, v `atIndex` 1, v `atIndex` 1)
---    | Just Refl <- sameNat (Proxy @n) (Proxy @4) = (v `atIndex` 0, v `atIndex` 1, v `atIndex` 1, v `atIndex` 2)
+----------------------------------------------------------------------------------
+---- Linkage! Uniforms, inputs attributes, outputs
+----------------------------------------------------------------------------------
+data Uniform t
+data In      t
+data Out     t
 
 
---------------------------------------------------------------------------------
--- Uniforms, inputs attributes, outputs
---------------------------------------------------------------------------------
-data Uniform t = Uniform
-data In      t = In
-data Out     t = Out
+type family IsLinkageType (t :: * -> *) where
+  IsLinkageType Uniform = True
+  IsLinkageType In      = True
+  IsLinkageType Out     = True
 
 
----- | Get the value of the input attribute.
-----
----- >>> gPrint $ attributeValue $ In @"position" @(Vec 2 Float)
----- position
---attributeValue :: forall name t. KnownSymbol name => In name t -> Value t
---attributeValue = const $ ident (symbolVal $ Proxy @name)
+type IsLinkage t = (Typeable t, IsLinkageType t ~ 'True)
 
 
----- | Get the value of the uniform.
-----
----- >>> gPrint $ uniformValue $ Uniform @"projection" @(Vec 2 Float)
----- projection
---uniformValue :: forall name t. KnownSymbol name => Uniform name t -> Value t
---uniformValue = const $ ident (symbolVal $ Proxy @name)
+readFrom
+  :: forall f t. (f == Uniform || f == In) ~ 'True
+  => Value (f t)
+  -> Value t
+readFrom = cast
+
+
+class HasLinkage t where
+  linkage :: String
+
+
+instance HasLinkage Word where linkage = "uint"
+instance HasLinkage Int where linkage = "int"
+instance HasLinkage Float where linkage = "float"
+instance HasLinkage Double where linkage = "float"
+instance HasLinkage Bool where linkage = "bool"
+
+
+-- | Declare a linkage binding like Uniform, In or Out.
+--
+-- >>> :{
+-- printGLSL $ do
+--   bvec <- out
+--   bvec .= vec2 true false
+-- >>> :}
+-- out bvec2 a;
+-- a = bvec2(true, false);
+instance ( KnownNat n
+         , VecPrefix t ~ pre
+         , KnownSymbol pre
+         , HasLinkage t
+         , Typeable t
+         ) => HasLinkage (Vec n t) where
+  linkage
+    | Just Refl <- eqT @t @(Vec n Float) = "mat" ++ show (natVal $ Proxy @n)
+    | otherwise = concat [ symbolVal (Proxy @pre)
+                         , "vec"
+                         , show $ natVal (Proxy @n)
+                         ]
+
+
+instance HasLinkage t => HasLinkage (Uniform t) where
+  linkage = "uniform " ++ linkage @t
+instance HasLinkage t => HasLinkage (In t) where
+  linkage = "in " ++ linkage @t
+instance HasLinkage t => HasLinkage (Out t) where
+  linkage = "out " ++ linkage @t
 
 
 --------------------------------------------------------------------------------
@@ -464,8 +529,23 @@ data Out     t = Out
 -- * We must be able to declare, pass around and read shader uniforms   (inputs).
 -- * We must be able to declare, pass around and write shader outputs
 -- * In a fragment shader we must be able to short circuit (discard).
---
-data GLSLData = GLSLData { _glslStatements :: [Term (Expr ())]
+data Statement = Statement (Value ())
+               -- ^ One line of an imperative program, just like you would expect.
+               | ScopedStatements String [Statement] String
+               -- ^ Many lines of a program in a new scope.
+
+
+instance Pretty Statement where
+  pPrint (Statement val) = pPrint val <> semi <> text "\n"
+  pPrint (ScopedStatements s vals e) = mconcat [ text s
+                                               , text "\n"
+                                               , mconcat $ map ((text "  " <>) . pPrint) vals
+                                               , text e
+                                               , text "\n"
+                                               ]
+
+
+data GLSLData = GLSLData { _glslStatements :: [Statement]
                          -- ^ A list of all glsl statements.
                          , _glslNames      :: [String]
                          -- ^ An infinite list of available ident names.
@@ -485,37 +565,155 @@ data ShaderContext = Vertex
                    -- ...
 
 
-type GLSL (x :: ShaderContext) (inputs :: [*]) = State GLSLData
+type GLSL = State GLSLData
 
 
 toGLSL :: GLSLData -> String
-toGLSL =
-  render . (<> stop) . mconcat . punctuate stop . map pPrint . reverse . _glslStatements
+toGLSL = PP.render . mconcat . map pPrint . reverse . _glslStatements
   where stop = semi <> text "\n"
 
 
-printGLSL :: GLSL x ts a -> IO ()
-printGLSL = putStrLn . snd . flip runGLSL (GLSLData [] allNames)
-
-
-runGLSL :: GLSL x ts a -> GLSLData -> (a, String)
+runGLSL :: GLSL a -> GLSLData -> (a, String)
 runGLSL f dat0 = let (a, dat) = runState f dat0 in (a, toGLSL dat)
 
 
-statement :: Term (Expr ()) -> GLSL x ts ()
-statement term = modify $ \dat -> dat{ _glslStatements = term:_glslStatements dat }
+glsl :: GLSL a -> String
+glsl = snd . flip runGLSL (GLSLData [] allNames)
+
+
+printGLSL :: GLSL a -> IO ()
+printGLSL = putStr . glsl
+
+
+statement :: Value t -> GLSL ()
+statement term =
+  let stmnt = Statement $ cast term
+  in modify $ \dat -> dat{ _glslStatements = stmnt:_glslStatements dat }
+
+
+-- | We can enter statements in a a new scope.
+--
+-- >>> :{
+-- printGLSL $ do
+--   o <- out
+--   u <- uniform
+--   scoped "main (){" "}" $ do
+--     let x = sin $ readFrom u
+--     o .= x + 2.0
+-- >>> :}
+-- out float a;
+-- uniform float b;
+-- main (){
+--   a = (sin(b) + 2.0);
+-- }
+scoped :: String -> String -> GLSL a -> GLSL a
+scoped starting closing f = do
+  GLSLData statements names <- get
+  let (a, dat) = runState f $ GLSLData [] names
+      scope = ScopedStatements starting (_glslStatements dat) closing
+  put $ GLSLData (scope:statements) names
+  return a
+
+
+(.=) :: Value (Out t) -> Value t -> GLSL ()
+(.=) var val = statement $ assign (cast var) val
+infix 4 .=
+
+
+fresh :: GLSL String
+fresh = do
+  name:names <- gets _glslNames
+  modify $ \dat -> dat{ _glslNames = names }
+  return name
+
+
+-- | Declare a linkage binding like Uniform, In or Out.
+--
+-- >>> :{
+-- printGLSL $ do
+--   color <- out
+--   color .= vec4 1.0 1.0 0.0 1.0
+-- >>> :}
+-- out vec4 a;
+-- a = vec4(1.0, 1.0, 0.0, 1.0);
+declare :: forall t. HasLinkage t => GLSL (Value t)
+declare = do
+  name <- fresh
+  let val = declaration (linkage @t) name
+  statement $ cast val
+  return $ ident name
+
+
+-- | `declare` parameterized over Uniform.
+uniform :: HasLinkage t => GLSL (Value (Uniform t))
+uniform = declare
+
+
+-- | `declare` parameterized over In.
+attribute :: HasLinkage t => GLSL (Value (In t))
+attribute = declare
+
+
+-- | `declare` parameterized over Out.
+out :: HasLinkage t => GLSL (Value (Out t))
+out = declare
 
 
 -- | $example
---exampleVertexShader
---  :: Uniform (Mat 4 4 Float)
---  -> Uniform (Mat 4 4 Float)
---  -> In (Vec 2 Float)
---  -> In (Vec 4 Float)
---  -> Out (Vec 4 Float)
---  -> GLSL x ts ()
---exampleVertexShader projection modelview position color colorOut = do
---  let matrix    = projection * modelview
---      position4 = undefined
---  glPosition .= matrix * position4
---  colorOut   .= color
+-- https://thebookofshaders.com/02/
+--
+-- >>> printGLSL $ bos02FragmentShader $ ident "gl_FragColor"
+-- gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
+bos02FragmentShader
+  :: Value (Out (Vec 4 Float))
+  -> GLSL ()
+bos02FragmentShader fragColor = fragColor .= vec4 1 0 1 1
+
+
+-- | https://thebookofshaders.com/03/
+--
+-- >>> printGLSL $ bos03FragmentShader (ident "u_time") (ident "gl_FragColor")
+-- gl_FragColor = vec4(abs(sin(u_time)), 0.0, 0.0, 1.0);
+bos03FragmentShader
+  :: Value (Uniform Float)
+  -> Value (Out (Vec 4 Float))
+  -> GLSL ()
+bos03FragmentShader utime fragColor = do
+  let r = abs $ sin $ readFrom utime
+  fragColor .= vec4 r 0 0 1
+
+
+-- | Gristle's version of "main".
+--
+-- >>> :{
+-- let frag :: Value (Uniform Float) -> Value (Out (Vec 4 Float)) -> GLSL ()
+--     frag utime fragColor = do
+--       let r = sin $ readFrom utime
+--       fragColor .= vec4 r 0.0 0.0 1.0
+-- in printGLSL $ shader frag
+-- >>> :}
+-- uniform float a;
+-- out vec4 b;
+-- main () {
+--   b = vec4(sin(a), 0.0, 0.0, 1.0);
+-- }
+class Shader ident where
+  shader :: ident -> GLSL ()
+
+
+instance Shader () where
+  shader () = return ()
+
+
+instance (HasLinkage t, Shader y) => Shader (Value t -> y) where
+  shader f = do
+    val <- declare
+    shader $ f val
+
+
+instance Shader (GLSL ()) where
+  shader f = scoped "main () {" "}" f
+
+
+render :: GLSL () -> GLSL ()
+render = scoped "main () {" "}"
