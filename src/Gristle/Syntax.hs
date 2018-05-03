@@ -17,27 +17,29 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 module Gristle.Syntax where
 
-import           Control.Arrow                                ((&&&), (<<<),
-                                                               (>>>))
+import           Control.Category                             (Category (..),
+                                                               id, (.))
 import           Control.Monad.State                          (State, get, gets,
                                                                modify, put,
                                                                runState)
 import           Data.Char                                    (toLower)
-import           Data.Fix                                     (Fix (..), cata,
-                                                               cataM, hylo)
+import           Data.Fix                                     (Fix (..), hylo)
 import           Data.Monoid                                  (Monoid (..),
                                                                (<>))
 import           Data.Proxy                                   (Proxy (..))
 import           Data.Ratio                                   (denominator,
                                                                numerator)
 import           Data.Type.Bool
-import           Data.Type.Equality
+import           Data.Type.Equality                           hiding (apply)
 import           Data.Typeable                                (Typeable, eqT)
+import           Data.Void                                    (absurd)
 import           GHC.TypeLits
-import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
-                                                               cat, comma, hsep,
+import           Prelude                                      hiding (id, (.))
+import           "prettyclass" Text.PrettyPrint.HughesPJClass (Pretty (..),
+                                                               comma, hsep,
                                                                parens,
                                                                prettyShow,
                                                                punctuate, semi,
@@ -76,22 +78,25 @@ instance Pretty (Lit t) where
 
 
 type family IsLiteralType t where
-  IsLiteralType Word   = True
-  IsLiteralType Int    = True
-  IsLiteralType Float  = True
-  IsLiteralType Double = True
-  IsLiteralType Bool   = True
+  IsLiteralType Word   = 'True
+  IsLiteralType Int    = 'True
+  IsLiteralType Integer= 'True
+  IsLiteralType Float  = 'True
+  IsLiteralType Double = 'True
+  IsLiteralType Bool   = 'True
 
 
 type IsLit t = (Typeable t, IsLiteralType t ~ 'True)
 
 
 lit :: forall t. IsLit t => t -> Lit t
-lit n | Just (Refl :: t :~: Word  ) <- eqT = LitInt $ fromIntegral n
-      | Just (Refl :: t :~: Int   ) <- eqT = LitInt n
-      | Just (Refl :: t :~: Float ) <- eqT = LitFloat n
-      | Just (Refl :: t :~: Double) <- eqT = LitFloat $ realToFrac n
-      | Just (Refl :: t :~: Bool  ) <- eqT = LitBool n
+lit n | Just (Refl :: t :~: Word   ) <- eqT = LitInt $ fromIntegral n
+      | Just (Refl :: t :~: Int    ) <- eqT = LitInt n
+      | Just (Refl :: t :~: Integer) <- eqT = LitInt $ fromIntegral n
+      | Just (Refl :: t :~: Float  ) <- eqT = LitFloat n
+      | Just (Refl :: t :~: Double ) <- eqT = LitFloat $ realToFrac n
+      | Just (Refl :: t :~: Bool   ) <- eqT = LitBool n
+      | otherwise = absurd undefined
 
 
 data Expr t a = Literal (Lit t)
@@ -112,7 +117,7 @@ data Expr t a = Literal (Lit t)
 --------------------------------------------------------------------------------
 -- Values!
 --------------------------------------------------------------------------------
-type Value t = Fix (Expr t)
+newtype Value t = Value { unValue :: Fix (Expr t) }
 
 
 -- | Create a literal value from a couple valid types.
@@ -123,7 +128,7 @@ type Value t = Fix (Expr t)
 -- >>> gPrint $ litVal 0.0
 -- 0.0
 litVal :: IsLit t => t -> Value t
-litVal = Fix . Literal . lit
+litVal = Value . Fix . Literal . lit
 
 
 floatVal :: Float -> Value Float
@@ -160,24 +165,27 @@ castExpr = \case Literal a       -> Literal $ castLit a
                  Call a as       -> Call a as
 
 
-term2Expr :: forall x y. Value y -> Expr x (Value y)
+term2Expr :: forall x y. Fix (Expr y) -> Expr x (Fix (Expr y))
 term2Expr = castExpr . unFix
 
 
-expr2Value :: forall y x. Expr x (Value y) -> Value y
+expr2Value :: forall y x. Expr x (Fix (Expr y)) -> Fix (Expr y)
 expr2Value = Fix . castExpr
 
 
-cast :: Value x -> Value y
-cast = hylo expr2Value term2Expr
+castFix :: Fix (Expr x) -> Fix (Expr y)
+castFix = hylo expr2Value term2Expr
 
+
+castValue :: Value x -> Value y
+castValue = Value . castFix . unValue
 
 -- | Cast from some Num type to an "int".
 --
 -- >>> gPrint $ int $ floatVal 3.145
 -- ((int)3.145)
 int :: Num t => Value t -> Value Int
-int = Fix . Unary "int" . cast
+int = Value . Fix . Unary "int" . castFix . unValue
 
 
 -- | Cast from some Num type to an "int".
@@ -185,11 +193,11 @@ int = Fix . Unary "int" . cast
 -- >>> gPrint $ float $ intVal 20
 -- ((float)20)
 float :: Num t => Value t -> Value Float
-float = Fix . Unary "float" . cast
+float = Value . Fix . Unary "float" . castFix . unValue
 
 
 ident :: String -> Value t
-ident = Fix . Ident
+ident = Value . Fix . Ident
 
 
 declaration :: String -> String -> Value t
@@ -197,11 +205,11 @@ declaration link name = ident $ unwords [link, name]
 
 
 infx :: String -> Value x -> Value y -> Value z
-infx fn x y = Fix $ InfixOp fn (cast x) (cast y)
+infx fn (Value x) (Value y) = Value $ Fix $ InfixOp fn (castFix x) (castFix y)
 
 
 psfx :: Value x -> String -> Value z
-psfx v s = Fix $ PostFixOp s (cast v)
+psfx (Value v) s = Value $ Fix $ PostFixOp s (castFix v)
 
 
 prop :: forall x y. Value x -> String -> Value y
@@ -213,11 +221,35 @@ atIndex v n = psfx v (concat ["[", show n, "]"])
 
 
 call :: Value t -> [Value t] -> Value t
-call fn param = Fix $ Call fn param
+call (Value fn) = Value . Fix . Call fn . map unValue
 
 
+-- | Woah! We can do this?
+-- >>> :{
+-- let f :: Value (Float -> Float -> Float)
+--     f = ident "adder"
+-- in gPrint $ apply (apply f 6.0) 7.0
+-- >>> :}
+-- adder(6.0, 7.0)
+--
+-- Unfortunately Value is not a Functor and hence not Applicative.
 apply :: Value (x -> y) -> Value x -> Value y
-apply = undefined
+apply (Value f) (Value x) =
+  Value $ case unFix f of
+    Call a as -> castFix $ Fix $ Call a $ as ++ [castFix x]
+    _         -> Fix $ Call (castFix f) [castFix x]
+
+
+-- | Infix version of 'apply'.
+-- >>> :{
+-- let f :: Value (Float -> Float -> Float)
+--     f = ident "adder"
+-- in gPrint $ f <:> 6.0 <:> 7.0
+-- >>> :}
+-- adder(6.0, 7.0)
+(<:>) :: Value (x -> y) -> Value x -> Value y
+(<:>) = apply
+infixl 4 <:>
 
 
 -- | Variable assignment without declaration.
@@ -225,7 +257,7 @@ apply = undefined
 -- >>> gPrint $ ident "somevar" `assign` floatVal 10
 -- somevar = 10.0
 assign :: Value t -> Value t -> Value ()
-assign a b = cast $ infx "=" a b
+assign a b = castValue $ infx "=" a b
 
 
 -- | Values can be expressed with numbers and operations on numbers.
@@ -247,7 +279,7 @@ instance (IsLit t, Num t) => Num (Value t) where
   (*)         = infx "*"
   abs         = call (ident "abs") . pure
   signum      = call (ident "signum") . pure
-  fromInteger = Fix . Literal . lit . fromIntegral
+  fromInteger = Value . Fix . Literal . lit . fromIntegral
 
 
 -- | Values can be expressed with fractions!
@@ -255,8 +287,8 @@ instance (IsLit t, Num t) => Num (Value t) where
 -- >>> gPrint $ floatVal 20 / floatVal 6
 -- (20.0 / 6.0)
 instance (Fractional t, IsLit t) => Fractional (Value t) where
-  fromRational r = Fix $ Literal $ lit @t $ (/) (fromIntegral $ numerator r)
-                                                (fromIntegral $ denominator r)
+  fromRational r = Value $ Fix $ Literal $ lit @t $ (/) (fromIntegral $ numerator r)
+                                                        (fromIntegral $ denominator r)
   (/)            = infx "/"
 
 
@@ -268,7 +300,7 @@ instance (Fractional t, IsLit t) => Fractional (Value t) where
 -- >>> gPrint $ floatVal 2 ** floatVal 4
 -- pow(2.0, 4.0)
 instance (Floating t, IsLit t) => Floating (Value t) where
-  pi     = Fix $ Literal $ lit @t pi
+  pi     = Value $ Fix $ Literal $ lit @t pi
   exp    = call (ident "exp")   . pure
   log    = call (ident "log")   . pure
   sin    = call (ident "sin")   . pure
@@ -289,30 +321,19 @@ para :: Functor f => (Fix f -> f a -> a) -> Fix f -> a
 para r t = r t $ fmap (para r) $ unFix t
 
 
-
 -- | Pretty printing an Expr prints out its GLSL code.
---
----- >>> :{
----- let dostuff :: Value (Int -> Int -> Int)
-----     dostuff = ident "dostuff"
-----     curried :: Value (Int -> Int)
-----     curried = call dostuff $ intVal $ -3
-----     val :: Value Int
-----     val = call curried $ intVal 6
----- in gPrint val
----- >>> :}
----- dostuff(-3, 6)
 instance Pretty (Value t) where
-  pPrint (Fix (Literal a))      = pPrint a
-  pPrint (Fix (Ident name))     = text name
-  pPrint (Fix (Unary op a))     = parens $ parens (text op) <> pPrint a
-  pPrint (Fix (InfixOp op a b)) = (if op == "=" then id else parens) $ pPrint a <+> text op <+> pPrint b
-  pPrint (Fix (PostFixOp op a)) = pPrint a <> text op
-  pPrint (Fix (Call fn as))     = mconcat [ pPrint fn
-                                          , parens $ hsep
-                                                   $ punctuate comma
-                                                   $ map pPrint as
-                                          ]
+  pPrint (Value (Fix (Literal a)))      = pPrint a
+  pPrint (Value (Fix (Ident name)))     = text name
+  pPrint (Value (Fix (Unary op a)))     = parens $ parens (text op) <> pPrint (Value a)
+  pPrint (Value (Fix (PostFixOp op a))) = pPrint (Value a) <> text op
+  pPrint (Value (Fix (InfixOp op a b))) =
+    let f = if op == "=" then id else parens
+    in f $ pPrint (Value a) <+> text op <+> pPrint (Value b)
+  pPrint (Value (Fix (Call fn as)))     =
+    mconcat [ pPrint $ Value fn
+            , parens $ hsep $ punctuate comma $ map (pPrint . Value) as
+            ]
 
 
 --------------------------------------------------------------------------------
@@ -326,7 +347,8 @@ type family VecPrefix t where
   VecPrefix Int     = "i"
   VecPrefix Integer = "i"
   VecPrefix Word    = "u"
-  VecPrefix t       = ""
+  VecPrefix Float   = ""
+  VecPrefix Double  = ""
 
 
 -- | Create a vec2.
@@ -338,7 +360,7 @@ vec2
   => Value t
   -> Value t
   -> Value (Vec 2 t)
-vec2 a b = cast $ call fn [a, b]
+vec2 a b = castValue $ call fn [a, b]
   where fn = ident $ symbolVal (Proxy @pre) ++ "vec2"
 
 
@@ -348,7 +370,7 @@ vec3
   -> Value t
   -> Value t
   -> Value (Vec 3 t)
-vec3 a b c = cast $ call fn [a, b, c]
+vec3 a b c = castValue $ call fn [a, b, c]
   where fn = ident $ symbolVal (Proxy @pre) ++ "vec3"
 
 
@@ -359,7 +381,7 @@ vec4
   -> Value t
   -> Value t
   -> Value (Vec 4 t)
-vec4 a b c d = cast $ call fn [a, b, c, d]
+vec4 a b c d = castValue $ call fn [a, b, c, d]
   where fn = ident $ symbolVal (Proxy @pre) ++ "vec4"
 
 
@@ -371,17 +393,17 @@ mat2
   => Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Mat 2 n)
-mat2 a b = cast $ call fn [a, b]
+mat2 a b = castValue $ call fn [a, b]
   where fn = ident $ "mat2x" ++ show (natVal $ Proxy @n)
 
 
 mat3
-  :: forall n t. (KnownNat n, n <= 4)
+  :: forall n. (KnownNat n, n <= 4)
   => Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Mat 3 n)
-mat3 a b c = cast $ call fn [a, b, c]
+mat3 a b c = castValue $ call fn [a, b, c]
   where fn = ident $ "mat3x" ++ show (natVal $ Proxy @n)
 
 
@@ -393,13 +415,13 @@ mat3 a b c = cast $ call fn [a, b, c]
 -- >>> :}
 -- mat4x3(vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0), vec3(2.0, 2.0, 2.0), vec3(3.0, 3.0, 3.0))
 mat4
-  :: forall n t. (KnownNat n, n <= 4)
+  :: forall n. (KnownNat n, n <= 4)
   => Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Vec n Float)
   -> Value (Mat 4 n)
-mat4 a b c d = cast $ call fn [a, b, c, d]
+mat4 a b c d = castValue $ call fn [a, b, c, d]
   where fn = ident $ "mat4x" ++ show (natVal $ Proxy @n)
 
 
@@ -450,6 +472,7 @@ instance (KnownNat n, 2 <= n, n <= 4) => ComponentsOf (Value (Vec (n :: Nat) t))
     | Just Refl <- sameNat (Proxy @n) (Proxy @2) = (v `atIndex` 0, v `atIndex` 1)
     | Just Refl <- sameNat (Proxy @n) (Proxy @3) = (v `atIndex` 0, v `atIndex` 1, v `atIndex` 2)
     | Just Refl <- sameNat (Proxy @n) (Proxy @4) = (v `atIndex` 0, v `atIndex` 1, v `atIndex` 2, v `atIndex` 3)
+    | otherwise = absurd undefined
 
 
 ----------------------------------------------------------------------------------
@@ -461,9 +484,9 @@ data Out     t
 
 
 type family IsLinkageType (t :: * -> *) where
-  IsLinkageType Uniform = True
-  IsLinkageType In      = True
-  IsLinkageType Out     = True
+  IsLinkageType Uniform = 'True
+  IsLinkageType In      = 'True
+  IsLinkageType Out     = 'True
 
 
 type IsLinkage t = (Typeable t, IsLinkageType t ~ 'True)
@@ -473,19 +496,7 @@ readFrom
   :: forall f t. (f == Uniform || f == In) ~ 'True
   => Value (f t)
   -> Value t
-readFrom = cast
-
-
-class HasLinkage t where
-  linkage :: String
-
-
-instance HasLinkage Word where linkage = "uint"
-instance HasLinkage Int where linkage = "int"
-instance HasLinkage Float where linkage = "float"
-instance HasLinkage Double where linkage = "float"
-instance HasLinkage Bool where linkage = "bool"
-
+readFrom = castValue
 
 -- | Declare a linkage binding like Uniform, In or Out.
 --
@@ -496,18 +507,53 @@ instance HasLinkage Bool where linkage = "bool"
 -- >>> :}
 -- out bvec2 a;
 -- a = bvec2(true, false);
-instance ( KnownNat n
+--
+-- >>> :{
+-- printGLSL $ do
+--   m <- out
+--   m .= mat2 (vec3 0 1 2) (vec3 3 4 5)
+-- >>> :}
+-- out mat2x3 a;
+-- a = mat2x3(vec3(0.0, 1.0, 2.0), vec3(3.0, 4.0, 5.0));
+class HasLinkage t where
+  linkage :: String
+
+
+instance HasLinkage Word where linkage = "uint"
+instance HasLinkage Int where linkage = "int"
+instance HasLinkage Integer where linkage = "int"
+instance HasLinkage Float where linkage = "float"
+instance HasLinkage Double where linkage = "float"
+instance HasLinkage Bool where linkage = "bool"
+
+
+instance {-# OVERLAPS #-}
+         ( KnownNat n
          , VecPrefix t ~ pre
          , KnownSymbol pre
          , HasLinkage t
+         , IsLit t
          , Typeable t
          ) => HasLinkage (Vec n t) where
-  linkage
-    | Just Refl <- eqT @t @(Vec n Float) = "mat" ++ show (natVal $ Proxy @n)
-    | otherwise = concat [ symbolVal (Proxy @pre)
-                         , "vec"
-                         , show $ natVal (Proxy @n)
-                         ]
+  linkage = concat [ symbolVal (Proxy @pre)
+                   , "vec"
+                   , show $ natVal (Proxy @n)
+                   ]
+
+
+instance ( KnownNat n
+         , KnownNat m
+         , Typeable t
+         , (t == Float || t == Double) ~ 'True
+         ) => HasLinkage (Vec n (Vec m t)) where
+  linkage = let vn = natVal $ Proxy @n
+                vm = natVal $ Proxy @m
+            in "mat" ++ if vn == vm
+                        then show vn
+                        else concat [ show (natVal $ Proxy @n)
+                                    , "x"
+                                    , show (natVal $ Proxy @m)
+                                    ]
 
 
 instance HasLinkage t => HasLinkage (Uniform t) where
@@ -570,7 +616,6 @@ type GLSL = State GLSLData
 
 toGLSL :: GLSLData -> String
 toGLSL = PP.render . mconcat . map pPrint . reverse . _glslStatements
-  where stop = semi <> text "\n"
 
 
 runGLSL :: GLSL a -> GLSLData -> (a, String)
@@ -587,7 +632,7 @@ printGLSL = putStr . glsl
 
 statement :: Value t -> GLSL ()
 statement term =
-  let stmnt = Statement $ cast term
+  let stmnt = Statement $ castValue term
   in modify $ \dat -> dat{ _glslStatements = stmnt:_glslStatements dat }
 
 
@@ -616,7 +661,7 @@ scoped starting closing f = do
 
 
 (.=) :: Value (Out t) -> Value t -> GLSL ()
-(.=) var val = statement $ assign (cast var) val
+(.=) var val = statement $ assign (castValue var) val
 infix 4 .=
 
 
@@ -640,7 +685,7 @@ declare :: forall t. HasLinkage t => GLSL (Value t)
 declare = do
   name <- fresh
   let val = declaration (linkage @t) name
-  statement $ cast val
+  statement $ castValue val
   return $ ident name
 
 
@@ -713,7 +758,3 @@ instance (HasLinkage t, Shader y) => Shader (Value t -> y) where
 
 instance Shader (GLSL ()) where
   shader f = scoped "main () {" "}" f
-
-
-render :: GLSL () -> GLSL ()
-render = scoped "main () {" "}"

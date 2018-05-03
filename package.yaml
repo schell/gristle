@@ -25,12 +25,10 @@ dependencies:
 - doctest       >= 0.15
 - mtl
 - prettyclass
-- lens
-#- ixmonad
-#- rebindable
 
 library:
   source-dirs: src
+  ghc-options: -Wall
 
 executables:
   gristle-exe:

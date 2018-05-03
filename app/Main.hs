@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 module Main where
 
-import Gristle.Syntax
+import Gristle
 
 vertex
   :: Value (In (Vec 2 Float))
