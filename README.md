@@ -9,7 +9,7 @@ use it as the bottom layer of rendering in [gelatin](https://github.com/schell/g
 {-# LANGUAGE DataKinds #-}
 module Main where
 
-import Gristle.Syntax
+import Gristle
 
 vertex
   :: Value (In (Vec 2 Float))
@@ -18,15 +18,12 @@ vertex
   -> Value (Out (Vec 4 Float))
   -> GLSL ()
 vertex position _ _ outColor = do
-  let (x, y) = decomp $ readFrom position
+  let (x, y) = decomp $ readAttrib position
       pos4   = vec4 x y 0.0 1.0
   outColor .= pos4
 
-fragment
-  :: Value (In (Vec 4 Float))
-  -> Value (Out (Vec 4 Float))
-  -> GLSL ()
-fragment inColor outColor = outColor .= readFrom inColor
+fragment :: Value (In (Vec 4 Float)) -> Value (Out (Vec 4 Float)) -> GLSL ()
+fragment inColor outColor = outColor .= readAttrib inColor
 
 -- | A demonstration of using Haskell's type system to generate glsl shaders.
 --

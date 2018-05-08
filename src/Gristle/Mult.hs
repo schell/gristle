@@ -13,11 +13,14 @@ module Gristle.Mult where
 import           Data.Type.Equality
 
 import           Gristle.Syntax
+import           Gristle.Vector
 
 -- $setup
 -- >>> :set -XTypeApplications -XDataKinds -XTypeFamilies -XFlexibleContexts
 -- >>> :set -XAllowAmbiguousTypes
 -- >>> import GHC.TypeLits (Nat)
+-- >>> import Gristle.Linkage
+-- >>> import Gristle.GLSL
 
 
 -- | Describes the number of columns and rows in a type, at the type level.
@@ -78,7 +81,11 @@ type family BaseType t where
 
 -- | We can multiply scalars, vectors and matrices.
 --
--- >>> printGLSL $ shader $ (.= mult (vec4 0 1 2 3) 6)
+-- >>> :{
+-- let sh :: Value (Out (Vec 4 Int)) -> GLSL ctx ()
+--     sh = (.= mult (ivec4 0 1 2 3) (intVal 6))
+-- in putStr $ glsl $ shader sh
+-- >>> :}
 -- out ivec4 a;
 -- main () {
 --   a = (ivec4(0, 1, 2, 3) * 6);
@@ -89,12 +96,12 @@ type family BaseType t where
 --       :: Value (Uniform (Mat 2 3))
 --       -> Value (Uniform (Vec 3 Float))
 --       -> Value (Out (Vec 2 Float))
---       -> GLSL ()
+--       -> GLSL ctx ()
 --     vert umat uvec out = do
 --       let mat = readFrom umat
 --           vec = readFrom uvec
 --       out .= mult vec mat
--- in printGLSL $ shader vert
+-- in putStr $ glsl $ shader vert
 -- >>> :}
 -- uniform mat2x3 a;
 -- uniform vec3 b;
@@ -103,7 +110,8 @@ type family BaseType t where
 --   c = (b * a);
 -- }
 mult
-  :: ( '(n, m)    ~ ColumnsAndRows x y
+  :: forall x y z n m xt yt.
+     ( '(n, m)    ~ ColumnsAndRows x y
      , xt         ~ BaseType x
      , yt         ~ BaseType y
      , (xt == yt) ~ 'True

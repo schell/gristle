@@ -25,16 +25,18 @@ dependencies:
 - doctest       >= 0.15
 - mtl
 - prettyclass
+- template-haskell
 
 library:
   source-dirs: src
-  ghc-options: -Wall
+  ghc-options: -Wall -fno-warn-unticked-promoted-constructors
 
 executables:
   gristle-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
+    - -Wall
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
@@ -51,3 +53,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - gristle
+    - directory
+    - filepath

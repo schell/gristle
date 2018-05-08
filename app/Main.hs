@@ -8,17 +8,17 @@ vertex
   -> Value (In (Vec 4 Float))
   -> Value (Uniform (Mat 4 4))
   -> Value (Out (Vec 4 Float))
-  -> GLSL ()
+  -> GLSL Vertex ()
 vertex position _ _ outColor = do
-  let (x, y) = decomp $ readFrom position
+  let (x, y) = decomp $ readIn position
       pos4   = vec4 x y 0.0 1.0
   outColor .= pos4
 
 fragment
   :: Value (In (Vec 4 Float))
   -> Value (Out (Vec 4 Float))
-  -> GLSL ()
-fragment inColor outColor = outColor .= readFrom inColor
+  -> GLSL Fragment ()
+fragment inColor outColor = outColor .= readIn inColor
 
 -- | A demonstration of using Haskell's type system to generate glsl shaders.
 --
@@ -32,7 +32,7 @@ fragment inColor outColor = outColor .= readFrom inColor
 --   d = vec4(a[0], a[1], 0.0, 1.0);
 -- }
 -- <BLANKLINE>
--- -------------------- vertex
+-- -------------------- fragment
 -- in vec4 a;
 -- out vec4 b;
 -- main () {
