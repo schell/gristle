@@ -10,17 +10,21 @@
 {-# LANGUAGE TypeOperators         #-}
 module Gristle.GLSL where
 
+import           Control.Monad                                (forM_)
 import           Control.Monad.State                          (State, get, gets,
                                                                modify, put,
                                                                runState)
-import           "prettyclass" Text.PrettyPrint.HughesPJClass (Pretty (..),
-                                                               render, semi,
-                                                               text, (<>))
+import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
+                                                               nest, render,
+                                                               semi, text,
+                                                               ($+$), (<+>),
+                                                               (<>), vcat)
 
 import           Gristle.Linkage
 import           Gristle.Syntax
 import           Gristle.Types                                ()
 import           Gristle.Vector
+import           Prelude                                      hiding (break)
 
 
 -- $setup
@@ -42,18 +46,14 @@ import           Gristle.Vector
 -- * In a fragment shader we must be able to short circuit (discard).
 data Statement = Statement (Value ())
                -- ^ One line of an imperative program, just like you would expect.
-               | ScopedStatements String [Statement] String
+               | ScopedStatements Doc [Statement] Doc
                -- ^ Many lines of a program in a new scope.
 
 
 instance Pretty Statement where
-  pPrint (Statement val) = pPrint val <> semi <> text "\n"
-  pPrint (ScopedStatements s vals e) = mconcat [ text s
-                                               , text "\n"
-                                               , mconcat $ map ((text "  " <>) . pPrint) vals
-                                               , text e
-                                               , text "\n"
-                                               ]
+  pPrint (Statement val) = pPrint val <> semi
+  pPrint (ScopedStatements s vals e) =
+    vcat [s, nest 2 (vcat $ map pPrint vals), e]
 
 
 data GLSLData = GLSLData { _glslStatements :: [Statement]
@@ -93,7 +93,7 @@ type GLSL ctx = State GLSLData
 
 
 toGLSL :: GLSLData -> String
-toGLSL = render . mconcat . map pPrint . reverse . _glslStatements
+toGLSL = render . vcat . map pPrint . reverse . _glslStatements
 
 
 runGLSL :: GLSL ctx a -> GLSLData -> (a, String)
@@ -130,7 +130,7 @@ popStatement = do
 -- printGLSL $ do
 --   o :: Value (Out Float) <- out
 --   u <- uniform
---   scoped "main (){" "}" $ do
+--   shader $ do
 --     let x = sin $ readFrom u
 --     o .= x + 2.0
 --     _ <- var $ vec2 x 3.0
@@ -138,12 +138,12 @@ popStatement = do
 -- >>> :}
 -- out float a;
 -- uniform float b;
--- main (){
+-- main () {
 --   a = (sin(b) + 2.0);
 --   vec2 c;
 --   c = vec2(sin(b), 3.0);
 -- }
-scoped :: String -> String -> GLSL ctx a -> GLSL ctx a
+scoped :: Doc -> Doc -> GLSL ctx a -> GLSL ctx a
 scoped starting closing f = do
   GLSLData statements names <- get
   let (a, dat) = runState f $ GLSLData [] names
@@ -200,14 +200,84 @@ var val = do
 -- }
 ifthen :: Value Bool -> GLSL ctx () -> GLSL ctx ()
 ifthen v f = do
-  let b = render $ pPrint v
-      start = concat ["if ( ", b, " ) {"]
-  scoped start "}" f
+  let start = text "if (" <+> pPrint v <+> text ") {"
+  scoped start (text "}") f
+
+
+-- | Execute the first glsl when the given Value Bool is 'true',
+-- otherwise execute the second.
+--
+-- >>> :{
+-- putStr $ glsl $
+--   ifthenelse
+--     false
+--     discard
+--     $ do x <- var (3.0 :: Value Float)
+--          _ <- var $ x + 2
+--          return ()
+-- >>> :}
+-- if ( false ) {
+--   discard;
+-- }
+-- else {
+--   float a;
+--   a = 3.0;
+--   float b;
+--   b = (a + 2.0);
+-- }
+ifthenelse :: Value Bool -> GLSL ctx () -> GLSL ctx () -> GLSL ctx ()
+ifthenelse v t f = do
+  let start = text "if (" <+> pPrint v <+> text ") {"
+  scoped start (text "}") t
+  scoped (text "else {") (text "}") f
+
+
+-- | Execute only the glsl paired with the value that matches the value given as
+-- the first parameter.
+--
+-- >>> :{
+-- putStr $ glsl $
+--   switch (intVal 5) [ (1, discard)
+--                     , (2, discard)
+--                     , (5, do x <- var 3
+--                              _ <- var $ sin $ float x
+--                              return ()
+--                       )
+--                     ]
+-- >>> :}
+-- switch ( 5 ) {
+--   case ( 1 ) : {
+--     discard;
+--     break;
+--   }
+--   case ( 2 ) : {
+--     discard;
+--     break;
+--   }
+--   case ( 5 ) : {
+--     int a;
+--     a = 3;
+--     float b;
+--     b = sin(((float)a));
+--     break;
+--   }
+-- }
+switch :: Integral t => Value t -> [(Value t, GLSL ctx ())] -> GLSL ctx ()
+switch v cases = do
+  let start = text "switch (" <+> pPrint v <+> text ") {"
+  scoped start (text "}") $ forM_ cases $ \(val, f) -> do
+    let cstart = text "case (" <+> pPrint val <+> text ") : {"
+    scoped cstart (text "}") $ f >> break
 
 
 -- | Early exit statement. Can only be used in fragment shaders.
 discard :: GLSL Fragment ()
 discard = statement $ ident "discard"
+
+
+-- | Early exit from switch or if.
+break :: GLSL ctx ()
+break = statement $ ident "break"
 
 
 -- | Declare an explicitly named binding.
@@ -303,4 +373,4 @@ instance (HasLinkage t, Shader y) => Shader (Value t -> y) where
 
 
 instance Shader (GLSL ctx ()) where
-  shader f = scoped "main () {" "}" f
+  shader = scoped (text "main () {") (text "}")
