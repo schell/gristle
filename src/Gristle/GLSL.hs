@@ -374,3 +374,7 @@ instance (HasLinkage t, Shader y) => Shader (Value t -> y) where
 
 instance Shader (GLSL ctx ()) where
   shader = scoped (text "main () {") (text "}")
+
+-- TODO: Change float, int, etc from prefix to regular call.
+-- Right now the cast functions use the C-like prefix notation `(float)x`. GLSL
+-- doesn't seem to support this though, preferring `float(x)`. Change this.
