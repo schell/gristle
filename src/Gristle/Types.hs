@@ -63,8 +63,8 @@ $(genStuff genFloatingInstance [ (t, c)
                                ]
  )
 
-$(genStuff genNumInstance $ [ (t, c)
-                            | t <- integralBaseTypes
-                            , c <- pure [e| litVal . fromIntegral |]
-                            ]
+$(genStuff genNumInstance [ (t, c)
+                          | t <- integralBaseTypes
+                          , c <- pure [e| litVal . fromIntegral |]
+                          ]
  )

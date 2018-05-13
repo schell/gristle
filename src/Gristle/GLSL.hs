@@ -10,15 +10,14 @@
 {-# LANGUAGE TypeOperators         #-}
 module Gristle.GLSL where
 
-import           Control.Monad                                (forM_)
+import           Control.Monad                                (forM_, void)
 import           Control.Monad.State                          (State, get, gets,
                                                                modify, put,
                                                                runState)
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
                                                                nest, render,
-                                                               semi, text,
-                                                               ($+$), (<+>),
-                                                               (<>), vcat)
+                                                               semi, text, vcat,
+                                                               (<+>), (<>))
 
 import           Gristle.Linkage
 import           Gristle.Syntax
@@ -258,7 +257,7 @@ ifthenelse v t f = do
 --     int a;
 --     a = 3;
 --     float b;
---     b = sin(((float)a));
+--     b = sin(float(a));
 --     break;
 --   }
 -- }
@@ -348,6 +347,13 @@ glFragCoord = getGlobal "gl_FragCoord"
 --------------------------------------------------------------------------------
 --
 --------------------------------------------------------------------------------
+data ShaderLinkages (ts :: [*]) = ShaderLinkages [Value ()]
+
+
+appendLinkage :: Value t -> ShaderLinkages ts -> ShaderLinkages (t:ts)
+appendLinkage v (ShaderLinkages vs) = ShaderLinkages $ castValue v : vs
+
+
 -- | Gristle's version of "main". A fun part of writing shaders in Gristle is
 -- that you never have to declare @uniforms@, @in@s or @out@s. You simply write
 -- a function that uses them and Gristle will provide them for you.
@@ -365,16 +371,32 @@ glFragCoord = getGlobal "gl_FragCoord"
 --   b = vec4(sin(a), 0.0, 0.0, 1.0);
 -- }
 class Shader ident where
-  shader :: ident -> GLSL ctx ()
+  type InputTypes ident :: [*]
+  genShader :: ident -> GLSL ctx (ShaderLinkages (InputTypes ident))
+
+
+shader :: Shader i => i -> GLSL ctx ()
+shader = void . genShader
 
 
 instance (HasLinkage t, Shader y) => Shader (Value t -> y) where
-  shader = (declare >>=) . (shader .)
+  type InputTypes (Value t -> y) = t : InputTypes y
+  genShader f = do
+    v  <- declare
+    vs <- genShader $ f v
+    return $ appendLinkage v vs
 
 
 instance Shader (GLSL ctx ()) where
-  shader = scoped (text "main () {") (text "}")
+  type InputTypes (State GLSLData ()) = '[]
+  genShader f = do
+    scoped (text "main () {") (text "}") f
+    return $ ShaderLinkages []
 
--- TODO: Change float, int, etc from prefix to regular call.
--- Right now the cast functions use the C-like prefix notation `(float)x`. GLSL
--- doesn't seem to support this though, preferring `float(x)`. Change this.
+
+-- ShaderInput gathers the linkage types that are needed as input to the shader.
+type family ShaderInput f where
+  ShaderInput (Value (Uniform t) -> y) = Uniform t : ShaderInput y
+  ShaderInput (Value (In t) -> y)      = In t : ShaderInput y
+  ShaderInput (Value t -> y)           = ShaderInput y
+  ShaderInput (State GLSLData a)       = '[]

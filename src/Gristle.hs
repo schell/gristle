@@ -62,6 +62,10 @@ module Gristle
   , shader
   , var
   , ifthen
+  , ifthenelse
+  , switch
+  , Gristle.GLSL.break
+  , discard
   ) where
 
 

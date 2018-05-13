@@ -1,22 +1,19 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE InstanceSigs               #-}
-{-# LANGUAGE KindSignatures             #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE PackageImports             #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PackageImports        #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
 {-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 -- | This module provides the operations and combinators needed to construct
 -- GLSL values in Haskell. It's not meant to be used by library consumers, only
@@ -34,28 +31,23 @@ import           Data.Char                                    (toLower)
 import           Data.Fix                                     (Fix (..), hylo)
 import           Data.Monoid                                  (Monoid (..),
                                                                (<>))
-import           Data.Proxy                                   (Proxy (..))
-import           Data.Ratio                                   (denominator,
-                                                               numerator)
-import           Data.Type.Bool
 import           Data.Type.Equality                           hiding (apply)
 import           Data.Typeable                                (Typeable, eqT)
 import           Data.Void                                    (absurd)
-import           GHC.TypeLits
 import           Prelude                                      hiding (id, (.))
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Pretty (..),
                                                                comma, hsep,
                                                                parens,
                                                                prettyShow,
-                                                               punctuate, semi,
-                                                               text, (<+>))
+                                                               punctuate, text,
+                                                               (<+>))
 import qualified "prettyclass" Text.PrettyPrint.HughesPJClass as PP
 
 
 -- $setup
 -- >>> :set -XTypeApplications -XDataKinds -XFlexibleContexts
 -- >>> :set -XAllowAmbiguousTypes -XTypeFamilies -XScopedTypeVariables
--- >>> import Gristle.Types
+-- >>> import Gristle.Types ()
 
 
 gPrint :: Pretty a => a -> IO ()
@@ -78,7 +70,7 @@ castLit = \case (LitBool b)  -> LitBool b
 
 
 instance Pretty (Lit t) where
-  pPrint (LitBool b)  = text $ map toLower $ show $ b
+  pPrint (LitBool b)  = text $ map toLower $ show b
   pPrint (LitFloat f) = PP.float f
   pPrint (LitInt i)   = PP.int i
 
@@ -109,8 +101,6 @@ data Expr t a = Literal (Lit t)
               -- ^ A literal value.
               | Ident String
               -- ^ A name for something like a variable or a function.
-              | Unary String a
-              -- ^ A unary op, mostly for casting.
               | InfixOp String a a
               -- ^ An infix operator, eg "+", "-", "*"
               | PostFixOp String a
@@ -165,7 +155,6 @@ true = litVal True
 castExpr :: forall y x a. Expr x a -> Expr y a
 castExpr = \case Literal a       -> Literal $ castLit a
                  Ident str       -> Ident str
-                 Unary str a     -> Unary str a
                  InfixOp str a b -> InfixOp str a b
                  PostFixOp str a -> PostFixOp str a
                  Call a as       -> Call a as
@@ -189,17 +178,17 @@ castValue = Value . castFix . unValue
 -- | Cast from some Num type to an "int".
 --
 -- >>> gPrint $ int $ floatVal 3.145
--- ((int)3.145)
+-- int(3.145)
 int :: Num t => Value t -> Value Int
-int = Value . Fix . Unary "int" . castFix . unValue
+int = call (ident "int") . pure . castValue
 
 
 -- | Cast from some Num type to an "int".
 --
 -- >>> gPrint $ float $ intVal 20
--- ((float)20)
+-- float(20)
 float :: Num t => Value t -> Value Float
-float = Value . Fix . Unary "float" . castFix . unValue
+float = call (ident "float") . pure . castValue
 
 
 ident :: String -> Value t
@@ -234,7 +223,7 @@ call (Value fn) = Value . Fix . Call fn . map unValue
 -- >>> :{
 -- let f :: Value (Float -> Float -> Float)
 --     f = ident "adder"
--- in gPrint $ apply (apply f 6.0) 7.0
+-- in gPrint $ apply (apply f $ floatVal 6.0) $ floatVal 7.0
 -- >>> :}
 -- adder(6.0, 7.0)
 --
@@ -250,7 +239,7 @@ apply (Value f) (Value x) =
 -- >>> :{
 -- let f :: Value (Float -> Float -> Float)
 --     f = ident "adder"
--- in gPrint $ f <:> 6.0 <:> 7.0
+-- in gPrint $ f <:> floatVal 6.0 <:> floatVal 7.0
 -- >>> :}
 -- adder(6.0, 7.0)
 (<:>) :: Value (x -> y) -> Value x -> Value y
@@ -270,7 +259,6 @@ assign a b = castValue $ infx "=" a b
 instance Pretty (Value t) where
   pPrint (Value (Fix (Literal a)))      = pPrint a
   pPrint (Value (Fix (Ident name)))     = text name
-  pPrint (Value (Fix (Unary op a)))     = parens $ parens (text op) <> pPrint (Value a)
   pPrint (Value (Fix (PostFixOp op a))) = pPrint (Value a) <> text op
   pPrint (Value (Fix (InfixOp op a b))) =
     let f = if op == "=" then id else parens

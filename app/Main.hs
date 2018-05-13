@@ -31,14 +31,12 @@ fragment inColor outColor = outColor .= readIn inColor
 -- main () {
 --   d = vec4(a[0], a[1], 0.0, 1.0);
 -- }
--- <BLANKLINE>
 -- -------------------- fragment
 -- in vec4 a;
 -- out vec4 b;
 -- main () {
 --   b = a;
 -- }
--- <BLANKLINE>
 main :: IO ()
 main = putStr $ unlines [ replicate 20 '-' ++ " vertex"
                         , glsl $ shader vertex
