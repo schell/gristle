@@ -32,10 +32,11 @@ import           Linear
 import           Gristle
 import           Gristle.Syntax
 import           Gristle.Vector
+import           Gristle.GLSL
 
 
-data a :> b = a :> b
-infixr 8 :>
+data a :& b = a :& b
+infixr 8 :&
 
 
 class ShaderFunction t where
@@ -43,8 +44,57 @@ class ShaderFunction t where
   mkShaderFunction :: t -> ShaderFunctionType t
 
 
+instance ShaderFunction () where
+  type ShaderFunctionType () = ()
+  mkShaderFunction () = ()
+
+
+instance (ShaderFunction a, ShaderFunction b) => ShaderFunction (a :& b) where
+  type ShaderFunctionType (a :& b) = ShaderFunctionType a :& ShaderFunctionType b
+  mkShaderFunction (a :& b) = mkShaderFunction a :& mkShaderFunction b
+
+
+type family LinkList (ts :: [*]) where
+  LinkList (t1 : t2 : '[]) = t1 :& t2
+  LinkList '[t] = t
+  LinkList (t1 : ts) = t1 :& LinkList ts
+  LinkList '[] = ()
+
+
+type family MapTypeList (f :: * -> *) (ts :: [*]) where
+  MapTypeList f '[] = '[]
+  MapTypeList f (x:xs) = f x : MapTypeList f xs
+
+
+vals2LinkList :: forall (ts :: [*]) a. [Value a] -> LinkList ts
+vals2LinkList = undefined
+
+
+uniformUpdates
+  :: forall t ts. ( Shader t
+                  , ts ~ MapTypeList Value (MapTypeList Uniform (Uniforms t))
+                  , ShaderFunction (LinkList ts)
+                  )
+  => t
+  -> ShaderFunctionType (LinkList ts)
+uniformUpdates t = mkShaderFunction $ vals2LinkList @ts
+                                    $ shaderLinkageUniforms
+                                    $ linkages t
+
+
+attribBuffers
+  :: forall t ts. ( Shader t
+                  , ts ~ MapTypeList Value (MapTypeList In (Ins t))
+                  , ShaderFunction (LinkList ts)
+                  )
+  => t
+  -> ShaderFunctionType (LinkList ts)
+attribBuffers t = mkShaderFunction $ vals2LinkList @ts
+                                   $ shaderLinkageAttribs
+                                   $ linkages t
+
 --------------------------------------------------------------------------------
-  -- Uniform update functions
+-- Uniform update functions
 --------------------------------------------------------------------------------
 $(mconcat <$> traverse
   (\(typFrom, typTo, func) ->
@@ -116,6 +166,11 @@ $(mconcat <$> traverse
  )
 
 
+--mkUniformUpdaters
+--  :: forall t. Shader t => t -> ShaderFunctionType (LinkList (Uniforms t))
+--mkUniformUpdaters sh = shaderLinkageUniforms $ linkages sh
+
+
 --------------------------------------------------------------------------------
 -- Attribute buffering functions
 --------------------------------------------------------------------------------
@@ -140,6 +195,9 @@ bindAndBuffer buf as = do
   S.unsafeWith (S.convert as) $ \ptr ->
     glBufferData GL_ARRAY_BUFFER (fromIntegral asize) (castPtr ptr) GL_STATIC_DRAW
 
+
+-- TODO: Use TH to generate monomorphic ShaderFunction instances.
+-- That way we don't run into overlapping instances.
 
 instance (Unbox t, Storable t, GLComponentType t) => ShaderFunction (Value (In t)) where
   type ShaderFunctionType (Value (In t)) = GLuint -> GLuint -> Vector t -> IO ()

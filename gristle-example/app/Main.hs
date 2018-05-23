@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
 module Main where
 
 import           Control.Monad          (forM_)
@@ -10,6 +11,9 @@ import           Control.Monad.IO.Class (MonadIO (..))
 import           Data.Function          (fix)
 import           Data.List              (nub)
 import           Data.String            (fromString)
+import qualified Data.Vector.Storable   as S
+import           Data.Vector.Unboxed    (Unbox, Vector)
+import qualified Data.Vector.Unboxed    as V
 import           Foreign.C.String
 import           Foreign.Marshal.Array
 import           Foreign.Marshal.Utils
@@ -21,6 +25,8 @@ import           SDL
 
 import           Gristle
 import           Gristle.Syntax
+
+import           TH
 
 
 -- TODO: More complicated shaders.
@@ -41,6 +47,19 @@ passthruFrag
 passthruFrag utime = do
   let r = abs $ sin $ readFrom utime
   set glFragColor $ vec4 r 0 0 1
+
+
+--------------------------------------------------------------------------------
+-- Making uniform updates and attribute buffering
+--------------------------------------------------------------------------------
+updateTime = uniformUpdates passthruFrag
+bufferPos  = attribBuffers passthruVert
+
+
+screenQuad :: Vector (V2 Float)
+screenQuad = V.fromList [ V2 0 0, V2 1 0, V2 1 1
+                        , V2 0 0, V2 1 1, V2 0 1
+                        ]
 
 
 -- | Creates and returns an SDL2 window.
