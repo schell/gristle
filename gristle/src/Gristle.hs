@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 module Gristle
   ( -- * Values and types
     Value
@@ -46,9 +45,11 @@ module Gristle
   , Out
   , out
   , (.=)
+  , set
     -- * Explicit naming
   , named
     -- * Special linkages
+  , glPosition
   , glFragColor
   , glFragCoord
     -- * The GLSL monad
@@ -66,6 +67,10 @@ module Gristle
   , switch
   , Gristle.GLSL.break
   , discard
+    -- * Linking shaders
+  , Link (..)
+  , linkages
+  , ShaderLinkages (..)
   ) where
 
 

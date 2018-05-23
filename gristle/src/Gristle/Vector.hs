@@ -257,6 +257,10 @@ class ComponentsOf thing where
   decomp :: thing -> TupleOf (NumberOfComponents thing) (ComponentType thing)
 
 
+numComps :: forall thing. KnownNat (NumberOfComponents thing) => Integer
+numComps = natVal $ Proxy @(NumberOfComponents thing)
+
+
 instance (KnownNat n, 2 <= n, n <= 4) => ComponentsOf (Value (Vec (n :: Nat) t)) where
   type ComponentType (Value (Vec n t)) = Value t
   type NumberOfComponents (Value (Vec n t)) = n

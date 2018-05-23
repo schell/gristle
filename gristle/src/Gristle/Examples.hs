@@ -2,9 +2,12 @@
 -- shaders with "Gristle".
 -- Most of these shaders come from [The Book of Shaders](http://thebookofshaders.com).
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
 module Gristle.Examples where
+
+import           GHC.TypeLits
 
 import           Gristle
 
@@ -51,3 +54,24 @@ bos03_1 = do
     let (x, y, _, _) = decomp $ readIn coord
         (stx, sty)   = decomp $ vec2 x y ./ readUniform urez
     color .= vec4 stx sty 0 1
+
+
+vert
+  :: Value (Uniform Float)
+  -> Value (In (Vec 2 Float))
+  -> Value (In (Vec 4 Float))
+  -> Value (Out (Vec 4 Float))
+  -> GLSL Vertex (Value (Out (Vec 4 Float)))
+vert red pos icolor colorOut = do
+  let (_, g, b, a) = decomp $ readFrom icolor
+      (x, y)       = decomp $ readFrom pos
+  set glPosition $ vec4 x y 0 1
+  colorOut .= vec4 (readFrom red) g b a
+  return colorOut
+
+
+frag
+  :: Value (In (Vec 4 Float))
+  -> Value (Out (Vec 4 Float))
+  -> GLSL Fragment ()
+frag colorIn = (.= readFrom colorIn)

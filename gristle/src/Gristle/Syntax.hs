@@ -38,6 +38,7 @@ import           Prelude                                      hiding (id, (.))
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Pretty (..),
                                                                comma, hsep,
                                                                parens,
+                                                               render,
                                                                prettyShow,
                                                                punctuate, text,
                                                                (<+>))
@@ -267,3 +268,7 @@ instance Pretty (Value t) where
     mconcat [ pPrint $ Value fn
             , parens $ hsep $ punctuate comma $ map (pPrint . Value) as
             ]
+
+
+valueToName :: Value t -> String
+valueToName = render . pPrint
