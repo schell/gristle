@@ -23,6 +23,10 @@ import           Gristle
 import           Gristle.Syntax
 
 
+-- TODO: More complicated shaders.
+-- Write some shaders that do a lot of things.
+
+
 passthruVert
   :: Value (In (Vec 2 Float))
   -> GLSL Vertex ()
