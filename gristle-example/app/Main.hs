@@ -52,8 +52,18 @@ passthruFrag utime = do
 --------------------------------------------------------------------------------
 -- Making uniform updates and attribute buffering
 --------------------------------------------------------------------------------
-updateTime = uniformUpdates passthruFrag
-bufferPos  = attribBuffers passthruVert
+-- | Given the compiled shader this function will return a uniform update
+-- function to update the @utime@ uniform in 'passthruFrag'.
+mkUpdateTimeUniform
+  :: GLuint
+  -- ^ The compiled shader.
+  -> IO (Float -> IO ())
+mkUpdateTimeUniform  = uniformUpdates passthruFrag
+
+
+-- | Given the attachment location of
+bufferPosAttribute :: GLuint -> GLuint -> Vector (V2 Float) -> IO ()
+bufferPosAttribute = attribBuffers passthruVert
 
 
 screenQuad :: Vector (V2 Float)

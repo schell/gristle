@@ -24,15 +24,16 @@ import           Foreign.C.String      (withCString)
 import           Foreign.Marshal.Utils (with)
 import           Foreign.Ptr           (castPtr, nullPtr)
 import           Foreign.Storable      (Storable (..))
-import           GHC.TypeLits          (KnownNat, KnownSymbol, symbolVal)
+import           GHC.TypeLits          (KnownNat, natVal)
+import           Data.Type.Equality                           hiding (apply)
+import           Data.Typeable                                (Typeable, eqT)
 import           Graphics.GL
-import           Language.Haskell.TH
 import           Linear
 
 import           Gristle
+import           Gristle.GLSL
 import           Gristle.Syntax
 import           Gristle.Vector
-import           Gristle.GLSL
 
 
 data a :& b = a :& b
@@ -66,8 +67,22 @@ type family MapTypeList (f :: * -> *) (ts :: [*]) where
   MapTypeList f (x:xs) = f x : MapTypeList f xs
 
 
-vals2LinkList :: forall (ts :: [*]) a. [Value a] -> LinkList ts
-vals2LinkList = undefined
+list2LinkList
+  :: forall (ts :: [*]) a x (xs :: [*]) y.
+     ( Typeable ts
+     , Typeable x
+     , Typeable xs
+     , Typeable (LinkList xs)
+     , Typeable y
+     , Typeable (LinkList (x : xs))
+     )
+  => [Value a]
+  -> LinkList ts
+list2LinkList vs
+  | Just (Refl :: '[] :~: ts)  <- eqT = ()
+  | Just (Refl :: (x:xs) :~: ts) <- eqT
+  , Just (Refl :: LinkList (x : xs) :~: Value y :& LinkList xs) <- eqT
+  , y:ys <- vs = (castValue y) :& (list2LinkList @xs ys)
 
 
 uniformUpdates
@@ -77,7 +92,7 @@ uniformUpdates
                   )
   => t
   -> ShaderFunctionType (LinkList ts)
-uniformUpdates t = mkShaderFunction $ vals2LinkList @ts
+uniformUpdates t = mkShaderFunction $ list2LinkList @ts
                                     $ shaderLinkageUniforms
                                     $ linkages t
 
@@ -89,7 +104,7 @@ attribBuffers
                   )
   => t
   -> ShaderFunctionType (LinkList ts)
-attribBuffers t = mkShaderFunction $ vals2LinkList @ts
+attribBuffers t = mkShaderFunction $ list2LinkList @ts
                                    $ shaderLinkageAttribs
                                    $ linkages t
 
@@ -166,11 +181,6 @@ $(mconcat <$> traverse
  )
 
 
---mkUniformUpdaters
---  :: forall t. Shader t => t -> ShaderFunctionType (LinkList (Uniforms t))
---mkUniformUpdaters sh = shaderLinkageUniforms $ linkages sh
-
-
 --------------------------------------------------------------------------------
 -- Attribute buffering functions
 --------------------------------------------------------------------------------
@@ -196,32 +206,52 @@ bindAndBuffer buf as = do
     glBufferData GL_ARRAY_BUFFER (fromIntegral asize) (castPtr ptr) GL_STATIC_DRAW
 
 
--- TODO: Use TH to generate monomorphic ShaderFunction instances.
--- That way we don't run into overlapping instances.
-
-instance (Unbox t, Storable t, GLComponentType t) => ShaderFunction (Value (In t)) where
-  type ShaderFunctionType (Value (In t)) = GLuint -> GLuint -> Vector t -> IO ()
+instance ShaderFunction (Value (In Float)) where
+  type ShaderFunctionType (Value (In Float)) = GLuint -> GLuint -> Vector Float -> IO ()
   mkShaderFunction _ loc buf as = do
     bindAndBuffer buf as
     glEnableVertexAttribArray loc
-    glVertexAttribPointer loc 1 (compType @t) GL_FALSE 0 nullPtr
+    glVertexAttribPointer loc 1 GL_FLOAT GL_FALSE 0 nullPtr
     err <- glGetError
     when (err /= 0) $ do
       print err
       assert False $ return ()
 
 
-instance ( Unbox (f t)
-         , Storable (f t)
-         , GLComponentType t
-         , ComponentsOf (f t)
-         , KnownNat (NumberOfComponents (f t))
-         ) => ShaderFunction (Value (In (f t))) where
-  type ShaderFunctionType (Value (In (f t))) = GLuint -> GLuint -> Vector (f t) -> IO ()
+instance ShaderFunction (Value (In Int)) where
+  type ShaderFunctionType (Value (In Int)) = GLuint -> GLuint -> Vector Int -> IO ()
   mkShaderFunction _ loc buf as = do
     bindAndBuffer buf as
     glEnableVertexAttribArray loc
-    glVertexAttribPointer loc (fromIntegral $ numComps @(f t)) (compType @t) GL_FALSE 0 nullPtr
+    glVertexAttribPointer loc 1 GL_INT GL_FALSE 0 nullPtr
+    err <- glGetError
+    when (err /= 0) $ do
+      print err
+      assert False $ return ()
+
+
+type family ToLinear t where
+  ToLinear (Vec 2 t) = V2 (ToLinear t)
+  ToLinear (Vec 3 t) = V3 (ToLinear t)
+  ToLinear (Vec 4 t) = V4 (ToLinear t)
+  ToLinear t = t
+
+
+instance ( Unbox (ToLinear (Vec n t))
+         , Storable (ToLinear (Vec n t))
+         , GLComponentType t
+         , KnownNat n
+         ) => ShaderFunction (Value (In (Vec n t))) where
+  type ShaderFunctionType (Value (In (Vec n t))) = GLuint -> GLuint -> Vector (ToLinear (Vec n t)) -> IO ()
+  mkShaderFunction _ loc buf as = do
+    bindAndBuffer buf as
+    glEnableVertexAttribArray loc
+    glVertexAttribPointer loc
+                          (fromIntegral $ natVal $ Proxy @n)
+                          (compType @t)
+                          GL_FALSE
+                          0
+                          nullPtr
     err <- glGetError
     when (err /= 0) $ do
       print err
