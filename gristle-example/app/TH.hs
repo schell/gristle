@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -17,6 +18,8 @@ import           Control.Exception     (assert)
 import           Control.Monad         (when)
 import qualified Data.Foldable         as F
 import           Data.Proxy            (Proxy (..))
+import           Data.Type.Equality    hiding (apply)
+import           Data.Typeable         (Typeable, eqT)
 import qualified Data.Vector.Storable  as S
 import           Data.Vector.Unboxed   (Unbox, Vector)
 import qualified Data.Vector.Unboxed   as V
@@ -25,8 +28,6 @@ import           Foreign.Marshal.Utils (with)
 import           Foreign.Ptr           (castPtr, nullPtr)
 import           Foreign.Storable      (Storable (..))
 import           GHC.TypeLits          (KnownNat, natVal)
-import           Data.Type.Equality                           hiding (apply)
-import           Data.Typeable                                (Typeable, eqT)
 import           Graphics.GL
 import           Linear
 
@@ -34,10 +35,6 @@ import           Gristle
 import           Gristle.GLSL
 import           Gristle.Syntax
 import           Gristle.Vector
-
-
-data a :& b = a :& b
-infixr 8 :&
 
 
 class ShaderFunction t where
@@ -68,21 +65,10 @@ type family MapTypeList (f :: * -> *) (ts :: [*]) where
 
 
 list2LinkList
-  :: forall (ts :: [*]) a x (xs :: [*]) y.
-     ( Typeable ts
-     , Typeable x
-     , Typeable xs
-     , Typeable (LinkList xs)
-     , Typeable y
-     , Typeable (LinkList (x : xs))
-     )
-  => [Value a]
+  :: forall (ts :: [*]) a.
+     [Value a]
   -> LinkList ts
-list2LinkList vs
-  | Just (Refl :: '[] :~: ts)  <- eqT = ()
-  | Just (Refl :: (x:xs) :~: ts) <- eqT
-  , Just (Refl :: LinkList (x : xs) :~: Value y :& LinkList xs) <- eqT
-  , y:ys <- vs = (castValue y) :& (list2LinkList @xs ys)
+list2LinkList = undefined
 
 
 uniformUpdates

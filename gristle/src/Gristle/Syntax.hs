@@ -176,6 +176,7 @@ castFix = hylo expr2Value term2Expr
 castValue :: Value x -> Value y
 castValue = Value . castFix . unValue
 
+
 -- | Cast from some Num type to an "int".
 --
 -- >>> gPrint $ int $ floatVal 3.145

@@ -14,16 +14,12 @@
 {-# LANGUAGE UndecidableInstances       #-}
 module Gristle.GLSL where
 
-import           Control.Monad                                (forM_, void)
-import           Control.Monad.State                          (MonadState (..),
-                                                               State, get, gets,
-                                                               modify, put,
-                                                               runState)
-import           Data.Proxy                                   (Proxy (..))
-import           GHC.TypeLits                                 (KnownSymbol (..),
-                                                               Symbol,
-                                                               symbolVal)
-import           Prelude                                      hiding (break)
+import           Control.Monad                  (forM_, void)
+import           Control.Monad.State            (MonadState (..), State, get,
+                                                 gets, modify, put, runState)
+import           Data.Proxy                     (Proxy (..))
+import           GHC.TypeLits                   (KnownSymbol, Symbol, symbolVal)
+import           Prelude                        hiding (break)
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
                                                                nest, parens,
                                                                render, semi,
@@ -32,7 +28,7 @@ import           "prettyclass" Text.PrettyPrint.HughesPJClass (Doc, Pretty (..),
 
 import           Gristle.Linkage
 import           Gristle.Syntax
-import           Gristle.Types                                ()
+import           Gristle.Types                  ()
 import           Gristle.Vector
 
 
@@ -377,59 +373,74 @@ glFragCoord = getGlobal "gl_FragCoord"
 newtype Link (name :: Symbol) t = Link { unLink :: t }
 
 
-data ShaderLinkages ctx (as :: [*]) (us :: [*]) (os :: [*]) =
-  ShaderLinkages { shaderLinkageAttribs  :: [Value ()]
-                 , shaderLinkageUniforms :: [Value ()]
-                 , shaderLinkageOuts     :: [Value ()]
+linkAs :: forall name f x. Link name (Value (f x)) -> Value (f x)
+linkAs = unLink
+
+
+data ShaderLinkages ctx as us os =
+  ShaderLinkages { shaderLinkageAttribs  :: as
+                 , shaderLinkageUniforms :: us
+                 , shaderLinkageOuts     :: os
                  , shaderLinkageSrc      :: String
                  , shaderLinkageCtx      :: String
                  }
 
 
-instance Pretty (ShaderLinkages ctx as us os) where
+instance ( Pretty as
+         , Pretty us
+         , Pretty os
+         ) => Pretty (ShaderLinkages ctx as us os) where
   pPrint (ShaderLinkages as us os src ctx) =
     vcat [ text "Shader" <+> parens (text ctx) <+> text "linkages:"
          , nest 2 $ text "attribs:"
-         , nest 4 $ vcat $ map pPrint as
+         , nest 4 $ pPrint as
          , nest 2 $ text "uniforms:"
-         , nest 4 $ vcat $ map pPrint us
+         , nest 4 $ pPrint us
          , nest 2 $ text "outs:"
-         , nest 4 $ vcat $ map pPrint os
+         , nest 4 $ pPrint os
          , nest 2 $ text "src:"
          , nest 4 $ vcat $ map text $ lines src
          ]
 
 
-instance Show (ShaderLinkages ctx as us os) where
+instance ( Pretty as
+         , Pretty us
+         , Pretty os
+         ) => Show (ShaderLinkages ctx as us os) where
   show = render . pPrint
 
 
-emptyLinkages :: forall ctx. ShaderContext ctx => ShaderLinkages ctx '[] '[] '[]
-emptyLinkages = ShaderLinkages [] [] [] "" $ shaderContext @ctx
+emptyLinkages :: forall ctx. ShaderContext ctx => ShaderLinkages ctx () () ()
+emptyLinkages = ShaderLinkages () () () "" $ shaderContext @ctx
+
+
+data a :& b = a :& b
+infixr 8 :&
 
 
 appendAttribute
-  :: Value (In t)
+  :: forall t ctx as us os.
+     Value (In t)
   -> ShaderLinkages ctx as us os
-  -> ShaderLinkages ctx (t:as) us os
+  -> ShaderLinkages ctx (Value t :& as) us os
 appendAttribute v (ShaderLinkages as us os src x) =
-  ShaderLinkages (castValue v : as) us os src x
+  ShaderLinkages (castValue v :& as) us os src x
 
 
 appendUniform
   :: Value (Uniform t)
   -> ShaderLinkages ctx as us os
-  -> ShaderLinkages ctx as (t:us) os
+  -> ShaderLinkages ctx as (Value t :& us) os
 appendUniform v (ShaderLinkages as us os src x) =
-  ShaderLinkages as (castValue v : us) os src x
+  ShaderLinkages as (castValue v :& us) os src x
 
 
 appendOut
   :: Value (Out t)
   -> ShaderLinkages ctx as us os
-  -> ShaderLinkages ctx as us (t:os)
+  -> ShaderLinkages ctx as us (Value t :& os)
 appendOut v (ShaderLinkages as us os src x) =
-  ShaderLinkages as us (castValue v : os) src x
+  ShaderLinkages as us (castValue v :& os) src x
 
 
 -- | Gristle's version of "main". A fun part of writing shaders in Gristle is
@@ -449,9 +460,9 @@ appendOut v (ShaderLinkages as us os src x) =
 --   b = vec4(sin(a), 0.0, 0.0, 1.0);
 -- }
 class Shader t where
-  type Ins      t :: [*]
-  type Uniforms t :: [*]
-  type Outs     t :: [*]
+  type Ins      t
+  type Uniforms t
+  type Outs     t
   type Ctx      t
   genShader :: t -> GLSL (Ctx t) (ShaderLinkages (Ctx t) (Ins t) (Uniforms t) (Outs t))
 
@@ -472,7 +483,7 @@ vertex = shader
 
 
 instance (HasLinkage t, Shader y) => Shader (Value (In t) -> y) where
-  type Ins      (Value (In t) -> y) = t : Ins y
+  type Ins      (Value (In t) -> y) = Value t :& Ins y
   type Uniforms (Value (In t) -> y) = Uniforms y
   type Outs     (Value (In t) -> y) = Outs y
   type Ctx      (Value (In t) -> y) = Ctx y
@@ -486,7 +497,7 @@ instance ( HasLinkage t
          , Shader y
          , KnownSymbol name
          ) => Shader (Link name (Value (In t)) -> y) where
-  type Ins      (Link name (Value (In t)) -> y) = t : Ins y
+  type Ins      (Link name (Value (In t)) -> y) = Value t :& Ins y
   type Uniforms (Link name (Value (In t)) -> y) = Uniforms y
   type Outs     (Link name (Value (In t)) -> y) = Outs y
   type Ctx      (Link name (Value (In t)) -> y) = Ctx y
@@ -498,7 +509,7 @@ instance ( HasLinkage t
 
 instance ( HasLinkage t, Shader y) => Shader (Value (Uniform t) -> y) where
   type Ins      (Value (Uniform t) -> y) = Ins y
-  type Uniforms (Value (Uniform t) -> y) = t : Uniforms y
+  type Uniforms (Value (Uniform t) -> y) = Value t :& Uniforms y
   type Outs     (Value (Uniform t) -> y) = Outs y
   type Ctx      (Value (Uniform t) -> y) = Ctx y
   genShader f = do
@@ -512,7 +523,7 @@ instance ( HasLinkage t
          , KnownSymbol name
          ) => Shader (Link name (Value (Uniform t)) -> y) where
   type Ins      (Link name (Value (Uniform t)) -> y) = Ins y
-  type Uniforms (Link name (Value (Uniform t)) -> y) = t : Uniforms y
+  type Uniforms (Link name (Value (Uniform t)) -> y) = Value t :& Uniforms y
   type Outs     (Link name (Value (Uniform t)) -> y) = Outs y
   type Ctx      (Link name (Value (Uniform t)) -> y) = Ctx y
   genShader f = do
@@ -524,7 +535,7 @@ instance ( HasLinkage t
 instance (HasLinkage t, Shader y) => Shader (Value (Out t) -> y) where
   type Ins      (Value (Out t) -> y) = Ins y
   type Uniforms (Value (Out t) -> y) = Uniforms y
-  type Outs     (Value (Out t) -> y) = t : Outs y
+  type Outs     (Value (Out t) -> y) = Value t :& Outs y
   type Ctx      (Value (Out t) -> y) = Ctx y
   genShader f = do
     v  <- declare
@@ -538,7 +549,7 @@ instance ( HasLinkage t
          ) => Shader (Link name (Value (Out t)) -> y) where
   type Ins      (Link name (Value (Out t)) -> y) = Ins y
   type Uniforms (Link name (Value (Out t)) -> y) = Uniforms y
-  type Outs     (Link name (Value (Out t)) -> y) = t : Outs y
+  type Outs     (Link name (Value (Out t)) -> y) = Value t :& Outs y
   type Ctx      (Link name (Value (Out t)) -> y) = Ctx y
   genShader f = do
     v  <- named $ symbolVal $ Proxy @name
@@ -547,9 +558,9 @@ instance ( HasLinkage t
 
 
 instance ShaderContext ctx => Shader (GLSL ctx ()) where
-  type Ins      (GLSL ctx ()) = '[]
-  type Uniforms (GLSL ctx ()) = '[]
-  type Outs     (GLSL ctx ()) = '[]
+  type Ins      (GLSL ctx ()) = ()
+  type Uniforms (GLSL ctx ()) = ()
+  type Outs     (GLSL ctx ()) = ()
   type Ctx      (GLSL ctx ()) = ctx
   genShader f = do
     scoped (text "void main () {") (text "}") f

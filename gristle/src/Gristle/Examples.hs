@@ -7,8 +7,6 @@
 {-# LANGUAGE TypeApplications    #-}
 module Gristle.Examples where
 
-import           GHC.TypeLits
-
 import           Gristle
 
 -- | https://thebookofshaders.com/02/

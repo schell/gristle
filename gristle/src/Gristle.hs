@@ -69,6 +69,7 @@ module Gristle
   , discard
     -- * Linking shaders
   , Link (..)
+  , linkAs
   , linkages
   , ShaderLinkages (..)
   ) where

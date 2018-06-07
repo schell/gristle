@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeApplications      #-}
 module Main where
 
 import           Control.Monad          (forM_)
@@ -21,7 +22,7 @@ import           Foreign.Ptr
 import           Foreign.Storable
 import           Graphics.GL.Core33
 import           Graphics.GL.Types
-import           SDL
+import           SDL hiding (mult)
 
 import           Gristle
 import           Gristle.Syntax
@@ -34,19 +35,25 @@ import           TH
 
 
 passthruVert
-  :: Value (In (Vec 2 Float))
+  :: Value (Out (Vec 4 Float))
+  -> Value (In (Vec 2 Float))
+  -> Value (In (Vec 4 Float))
   -> GLSL Vertex ()
-passthruVert pos = do
+passthruVert outColor pos inColor = do
   let (x, y) = decomp $ readFrom pos
-  set glPosition $ vec4 x y 0 1
+  glPos <- glPosition
+  glPos    .= vec4 x y 0 1
+  outColor .= readFrom inColor
 
 
 passthruFrag
-  :: Value (Uniform Float)
+  :: Value (In (Vec 4 Float))
+  -> Value (Uniform Float)
   -> GLSL Fragment ()
-passthruFrag utime = do
+passthruFrag color utime = do
   let r = abs $ sin $ readFrom utime
-  set glFragColor $ vec4 r 0 0 1
+  fragColor <- glFragColor
+  fragColor .= mult (vec4 1 1 1 r) (readFrom color)
 
 
 --------------------------------------------------------------------------------
@@ -58,12 +65,13 @@ mkUpdateTimeUniform
   :: GLuint
   -- ^ The compiled shader.
   -> IO (Float -> IO ())
-mkUpdateTimeUniform  = uniformUpdates passthruFrag
+mkUpdateTimeUniform = uniformUpdates passthruFrag
 
 
 -- | Given the attachment location of
-bufferPosAttribute :: GLuint -> GLuint -> Vector (V2 Float) -> IO ()
-bufferPosAttribute = attribBuffers passthruVert
+bufferPosAttribute   :: GLuint -> GLuint -> Vector (V2 Float) -> IO ()
+bufferColorAttribute :: GLuint -> GLuint -> Vector (V4 Float) -> IO ()
+bufferPosAttribute :& bufferColorAttribute = attribBuffers passthruVert
 
 
 screenQuad :: Vector (V2 Float)
@@ -87,7 +95,7 @@ initSDL2Window cfg title = liftIO $ do
   return w
 
 
- --------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- OpenGL shader only stuff
 --------------------------------------------------------------------------------
 compileOGLShader
@@ -200,14 +208,16 @@ main = do
                          }
 
   w <- initSDL2Window cfg "gristle example"
-  eErrOrPgm <-
-    runExceptT $ compileProgram =<< sequence [ compileShader passthruVert
-                                             , compileShader passthruFrag
-                                             ]
+  eErrOrPgm <- runExceptT $ do
+    let vert = passthruVert . linkAs @"color"
+        frag = passthruFrag . linkAs @"color"
+    compileProgram =<< sequence [ compileShader vert
+                                , compileShader frag
+                                ]
 
 
   case eErrOrPgm of
-    Left err      -> do
+    Left err -> do
       putStrLn "Got error from shaders:"
       print $ linkages passthruVert
       print $ linkages passthruFrag
