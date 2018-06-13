@@ -311,7 +311,7 @@ break :: GLSL ctx ()
 break = statement $ ident "break"
 
 
--- | Specify the glsl version
+-- | Specify the glsl version. This can be done at any time in the shader.
 --
 -- >>> :{
 -- putStr $ glsl $ do
@@ -471,6 +471,45 @@ appendOut
   -> ShaderLinkages ctx as us (Value t :& os)
 appendOut v (ShaderLinkages as anames us unames os onames src x) =
   ShaderLinkages as anames us unames (castValue v :& os) (valueToName v:onames) src x
+
+
+-- TODO: Program monad transformer.
+-- Making a program monad which is the context in which two or more shaders are
+-- linked and compiled would be a good next step. That way we could associate
+-- outs of one shader to ins of another shader without having to re-type the two
+-- values with 'Link @"name"', which is really clumsy. Something like this would
+-- be nice:
+-- ```haskell
+-- passthruVert
+--   :: Value (Out (Vec 4 Float))
+--   -> Value (In (Vec 2 Float))
+--   -> Value (In (Vec 4 Float))
+--   -> GLSL Vertex ()
+-- passthruVert outColor pos inColor = do
+--   let (x, y) = decomp $ readFrom pos
+--   glPos <- glPosition
+--   glPos    .= vec4 x y 0 1
+--   outColor .= readFrom inColor
+--
+--
+-- passthruFrag
+--   :: Value (In (Vec 4 Float))
+--   -> Value (Uniform Float)
+--   -> Value (Out (Vec 4 Float))
+--   -> GLSL Fragment ()
+-- passthruFrag color utime fragColor = do
+--   let r = abs $ sin $ readFrom utime
+--   fragColor .= mult (vec4 r 1 1 1) (readFrom color)
+--
+--
+-- -- Extra bindings to be explicit.
+-- shaderProgram = do
+--   vertLinks@(colorOut :& _) <- attachVertexShader passthruVert
+--   fragLinks@(colorIn  :& _) <- attachFragmentShader passthruFrag
+--   link colorIn colorOut
+--   bundle@(bufferPosition :& bufferColor :& updateTimeUniform :& program) <-
+--     compile $ vertLinks :& fragLinks
+--   return bundle
 
 
 -- | Gristle's version of "main". A fun part of writing shaders in Gristle is
