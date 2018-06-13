@@ -28,13 +28,13 @@ fragment inColor outColor = outColor .= readIn inColor
 -- in vec4 b;
 -- uniform mat4 c;
 -- out vec4 d;
--- main () {
+-- void main () {
 --   d = vec4(a[0], a[1], 0.0, 1.0);
 -- }
 -- -------------------- fragment
 -- in vec4 a;
 -- out vec4 b;
--- main () {
+-- void main () {
 --   b = a;
 -- }
 main :: IO ()

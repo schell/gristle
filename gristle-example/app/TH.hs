@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE UndecidableInstances   #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
@@ -24,6 +25,7 @@ import qualified Data.Vector.Storable  as S
 import           Data.Vector.Unboxed   (Unbox, Vector)
 import qualified Data.Vector.Unboxed   as V
 import           Foreign.C.String      (withCString)
+import           Foreign.Marshal.Array (allocaArray, peekArray)
 import           Foreign.Marshal.Utils (with)
 import           Foreign.Ptr           (castPtr, nullPtr)
 import           Foreign.Storable      (Storable (..))
@@ -36,63 +38,35 @@ import           Gristle.GLSL
 import           Gristle.Syntax
 import           Gristle.Vector
 
-
-class ShaderFunction t where
-  type ShaderFunctionType t
-  mkShaderFunction :: t -> ShaderFunctionType t
-
-
-instance ShaderFunction () where
-  type ShaderFunctionType () = ()
-  mkShaderFunction () = ()
+--------------------------------------------------------------------------------
+-- Uniform update class
+--------------------------------------------------------------------------------
 
 
-instance (ShaderFunction a, ShaderFunction b) => ShaderFunction (a :& b) where
-  type ShaderFunctionType (a :& b) = ShaderFunctionType a :& ShaderFunctionType b
-  mkShaderFunction (a :& b) = mkShaderFunction a :& mkShaderFunction b
+class HasUniformUpdates t where
+  type UniformUpdates t
+  toUniformUpdates :: t -> UniformUpdates t
 
 
-type family LinkList (ts :: [*]) where
-  LinkList (t1 : t2 : '[]) = t1 :& t2
-  LinkList '[t] = t
-  LinkList (t1 : ts) = t1 :& LinkList ts
-  LinkList '[] = ()
+instance ( HasUniformUpdates a
+         , HasUniformUpdates b
+         ) => HasUniformUpdates (a :& b) where
+  type UniformUpdates (a :& b) = UniformUpdates a :& UniformUpdates b
+  toUniformUpdates (a :& b) = toUniformUpdates a :& toUniformUpdates b
 
 
-type family MapTypeList (f :: * -> *) (ts :: [*]) where
-  MapTypeList f '[] = '[]
-  MapTypeList f (x:xs) = f x : MapTypeList f xs
-
-
-list2LinkList
-  :: forall (ts :: [*]) a.
-     [Value a]
-  -> LinkList ts
-list2LinkList = undefined
+instance HasUniformUpdates () where
+  type UniformUpdates () = ()
+  toUniformUpdates () = ()
 
 
 uniformUpdates
-  :: forall t ts. ( Shader t
-                  , ts ~ MapTypeList Value (MapTypeList Uniform (Uniforms t))
-                  , ShaderFunction (LinkList ts)
-                  )
-  => t
-  -> ShaderFunctionType (LinkList ts)
-uniformUpdates t = mkShaderFunction $ list2LinkList @ts
-                                    $ shaderLinkageUniforms
-                                    $ linkages t
+  :: ( Shader t
+     , HasUniformUpdates (Uniforms t)
+     )
+  => t -> UniformUpdates (Uniforms t)
+uniformUpdates = toUniformUpdates . shaderLinkageUniforms . linkages
 
-
-attribBuffers
-  :: forall t ts. ( Shader t
-                  , ts ~ MapTypeList Value (MapTypeList In (Ins t))
-                  , ShaderFunction (LinkList ts)
-                  )
-  => t
-  -> ShaderFunctionType (LinkList ts)
-attribBuffers t = mkShaderFunction $ list2LinkList @ts
-                                   $ shaderLinkageAttribs
-                                   $ linkages t
 
 --------------------------------------------------------------------------------
 -- Uniform update functions
@@ -100,10 +74,10 @@ attribBuffers t = mkShaderFunction $ list2LinkList @ts
 $(mconcat <$> traverse
   (\(typFrom, typTo, func) ->
     [d|
-    instance ShaderFunction (Value (Uniform $typTo)) where
-      type ShaderFunctionType (Value (Uniform $typTo)) = GLuint
-                                                      -> IO ($typFrom -> IO ())
-      mkShaderFunction v program = do
+    instance HasUniformUpdates (Value $typTo) where
+      type UniformUpdates (Value $typTo) =
+        (GLuint -> IO ($typFrom -> IO ()))
+      toUniformUpdates v program = do
         loc <- withCString (valueToName v) $ glGetUniformLocation program
         return $ \val -> do
           glUseProgram program
@@ -170,6 +144,64 @@ $(mconcat <$> traverse
 --------------------------------------------------------------------------------
 -- Attribute buffering functions
 --------------------------------------------------------------------------------
+
+
+class HasBufferableAttribs t where
+  type BufferableAttribs t
+  toBufferableAttribs :: t -> BufferableAttribs t
+
+
+instance ( HasBufferableAttribs a
+         , HasBufferableAttribs b
+         ) => HasBufferableAttribs (a :& b) where
+  type BufferableAttribs (a :& b) = BufferableAttribs a :& BufferableAttribs b
+  toBufferableAttribs (a :& b) = toBufferableAttribs a :& toBufferableAttribs b
+
+
+instance HasBufferableAttribs () where
+  type BufferableAttribs () = ()
+  toBufferableAttribs () = ()
+
+
+attribBuffers
+  :: ( Shader t
+     , HasBufferableAttribs (Ins t)
+     )
+  => t -> BufferableAttribs (Ins t)
+attribBuffers = toBufferableAttribs . shaderLinkageAttribs . linkages
+
+
+--------------------------------------------------------------------------------
+-- Attribute buffering functions
+--------------------------------------------------------------------------------
+clearErrors :: String -> IO ()
+clearErrors str = do
+    err' <- glGetError
+    when (err' /= 0) $ do
+      putStrLn $ unwords [str, show err']
+      assert False $ return ()
+
+
+withVAO :: (GLuint -> IO b) -> IO b
+withVAO f = do
+    [vao] <- allocaArray 1 $ \ptr -> do
+        glGenVertexArrays 1 ptr
+        peekArray 1 ptr
+    glBindVertexArray vao
+    r <- f vao
+    clearErrors "withVAO"
+    glBindVertexArray 0
+    return r
+
+
+withBuffers :: Int -> ([GLuint] -> IO b) -> IO b
+withBuffers n f = do
+    bufs <- allocaArray n $ \ptr -> do
+        glGenBuffers (fromIntegral n) ptr
+        peekArray (fromIntegral n) ptr
+    f bufs
+
+
 convertVec
   :: (Unbox (f Float), Foldable f) => Vector (f Float) -> S.Vector GLfloat
 convertVec =
@@ -192,28 +224,36 @@ bindAndBuffer buf as = do
     glBufferData GL_ARRAY_BUFFER (fromIntegral asize) (castPtr ptr) GL_STATIC_DRAW
 
 
-instance ShaderFunction (Value (In Float)) where
-  type ShaderFunctionType (Value (In Float)) = GLuint -> GLuint -> Vector Float -> IO ()
-  mkShaderFunction _ loc buf as = do
-    bindAndBuffer buf as
-    glEnableVertexAttribArray loc
-    glVertexAttribPointer loc 1 GL_FLOAT GL_FALSE 0 nullPtr
-    err <- glGetError
-    when (err /= 0) $ do
-      print err
-      assert False $ return ()
+instance HasBufferableAttribs (Value Float) where
+  type BufferableAttribs (Value Float) =
+    GLuint -> IO (GLuint -> Vector Float -> IO ())
+  toBufferableAttribs val program = do
+    iloc <- withCString (valueToName val) $ glGetAttribLocation program
+    return $ \buf as -> do
+      let loc = fromIntegral iloc
+      bindAndBuffer buf as
+      glEnableVertexAttribArray loc
+      glVertexAttribPointer loc 1 GL_FLOAT GL_FALSE 0 nullPtr
+      err <- glGetError
+      when (err /= 0) $ do
+        print err
+        assert False $ return ()
 
 
-instance ShaderFunction (Value (In Int)) where
-  type ShaderFunctionType (Value (In Int)) = GLuint -> GLuint -> Vector Int -> IO ()
-  mkShaderFunction _ loc buf as = do
-    bindAndBuffer buf as
-    glEnableVertexAttribArray loc
-    glVertexAttribPointer loc 1 GL_INT GL_FALSE 0 nullPtr
-    err <- glGetError
-    when (err /= 0) $ do
-      print err
-      assert False $ return ()
+instance HasBufferableAttribs (Value Int) where
+  type BufferableAttribs (Value Int) =
+    GLuint -> IO (GLuint -> Vector Int -> IO ())
+  toBufferableAttribs val program = do
+    iloc <- withCString (valueToName val) $ glGetAttribLocation program
+    return $ \buf as -> do
+      let loc = fromIntegral iloc
+      bindAndBuffer buf as
+      glEnableVertexAttribArray loc
+      glVertexAttribPointer loc 1 GL_INT GL_FALSE 0 nullPtr
+      err <- glGetError
+      when (err /= 0) $ do
+        print err
+        assert False $ return ()
 
 
 type family ToLinear t where
@@ -227,18 +267,34 @@ instance ( Unbox (ToLinear (Vec n t))
          , Storable (ToLinear (Vec n t))
          , GLComponentType t
          , KnownNat n
-         ) => ShaderFunction (Value (In (Vec n t))) where
-  type ShaderFunctionType (Value (In (Vec n t))) = GLuint -> GLuint -> Vector (ToLinear (Vec n t)) -> IO ()
-  mkShaderFunction _ loc buf as = do
-    bindAndBuffer buf as
-    glEnableVertexAttribArray loc
-    glVertexAttribPointer loc
-                          (fromIntegral $ natVal $ Proxy @n)
-                          (compType @t)
-                          GL_FALSE
-                          0
-                          nullPtr
-    err <- glGetError
-    when (err /= 0) $ do
-      print err
-      assert False $ return ()
+         ) => HasBufferableAttribs (Value (Vec n t)) where
+  type BufferableAttribs (Value (Vec n t)) =
+    GLuint -> IO (GLuint -> Vector (ToLinear (Vec n t)) -> IO ())
+  toBufferableAttribs val program = do
+    iloc <- withCString (valueToName val) $ glGetAttribLocation program
+    return $ \buf as -> do
+      let loc = fromIntegral iloc
+      bindAndBuffer buf as
+      glEnableVertexAttribArray loc
+      glVertexAttribPointer loc
+                            (fromIntegral $ natVal $ Proxy @n)
+                            (compType @t)
+                            GL_FALSE
+                            0
+                            nullPtr
+      err <- glGetError
+      when (err /= 0) $ do
+        print err
+        assert False $ return ()
+
+drawBuffer :: GLuint
+           -> GLuint
+           -> GLenum
+           -> GLsizei
+           -> IO ()
+drawBuffer program vao mode num = do
+    glUseProgram program
+    glBindVertexArray vao
+    clearErrors "drawBuffer:glBindVertex"
+    glDrawArrays mode 0 num
+    clearErrors "drawBuffer:glDrawArrays"

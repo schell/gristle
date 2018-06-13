@@ -1,6 +1,7 @@
 module Gristle
   ( -- * Values and types
     Value
+  , NamedValue
   , false
   , true
   -- * Vectors
@@ -58,6 +59,7 @@ module Gristle
   , Vertex
   , Fragment
   , glsl
+  , (:&)(..)
     -- * Writing shaders
   , Shader
   , shader
@@ -67,7 +69,7 @@ module Gristle
   , switch
   , Gristle.GLSL.break
   , discard
-    -- * Linking shaders
+    -- * Linking shader inputs and outputs
   , Link (..)
   , linkAs
   , linkages

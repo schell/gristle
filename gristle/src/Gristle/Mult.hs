@@ -87,7 +87,7 @@ type family BaseType t where
 -- in putStr $ glsl $ shader sh
 -- >>> :}
 -- out ivec4 a;
--- main () {
+-- void main () {
 --   a = (ivec4(0, 1, 2, 3) * 6);
 -- }
 --
@@ -106,7 +106,7 @@ type family BaseType t where
 -- uniform mat2x3 a;
 -- uniform vec3 b;
 -- out vec2 c;
--- main () {
+-- void main () {
 --   c = (b * a);
 -- }
 mult

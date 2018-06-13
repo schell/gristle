@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - sdl2
 - template-haskell
+- time
 - vector
 
 executables:

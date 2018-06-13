@@ -12,7 +12,7 @@ import           Gristle
 -- | https://thebookofshaders.com/02/
 --
 -- >>> putStr $ glsl bos02
--- main () {
+-- void main () {
 --   gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
 -- }
 bos02 :: GLSL Fragment ()
@@ -25,7 +25,7 @@ bos02 = do
 --
 -- >>> putStr $ glsl bos03
 -- uniform float u_time;
--- main () {
+-- void main () {
 --   gl_FragColor = vec4(abs(sin(u_time)), 0.0, 0.0, 1.0);
 -- }
 bos03 :: GLSL Fragment ()
@@ -40,7 +40,7 @@ bos03 = do
 --
 -- >>> putStr $ glsl bos03_1
 -- uniform vec2 u_resolution;
--- main () {
+-- void main () {
 --   gl_FragColor = vec4((vec2(gl_FragCoord[0], gl_FragCoord[1]) / u_resolution)[0], (vec2(gl_FragCoord[0], gl_FragCoord[1]) / u_resolution)[1], 0.0, 1.0);
 -- }
 bos03_1 :: GLSL Fragment ()

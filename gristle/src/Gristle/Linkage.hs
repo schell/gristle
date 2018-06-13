@@ -41,15 +41,25 @@ type family IsLinkageType (t :: * -> *) where
 type IsLinkage t = (Typeable t, IsLinkageType t ~ 'True)
 
 
-type family CanReadFrom (f :: * -> *) t where
-  CanReadFrom Uniform t = t
-  CanReadFrom In t      = t
-  CanReadFrom f t       = TypeError (Text "Cannot read from" :<>: ShowType f)
+-- | Read the value out of an input attribute or uniform.
+class ReadFrom t where
+  type CanReadFrom t
+  readFrom :: t -> CanReadFrom t
 
 
--- | Read the value out of an input.
-readFrom :: Value (f t) -> Value (CanReadFrom f t)
-readFrom = castValue
+instance ReadFrom (Value (Uniform t)) where
+  type CanReadFrom (Value (Uniform t)) = Value t
+  readFrom = castValue
+
+
+instance ReadFrom (Value (In t)) where
+  type CanReadFrom (Value (In t)) = Value t
+  readFrom = castValue
+
+
+instance ReadFrom (Value t) => ReadFrom (NamedValue n t) where
+  type CanReadFrom (NamedValue n t) = CanReadFrom (Value t)
+  readFrom = readFrom . unLink
 
 
 -- | Less polymorphic version of 'readFrom'.

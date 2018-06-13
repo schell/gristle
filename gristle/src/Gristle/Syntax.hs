@@ -25,22 +25,21 @@
 module Gristle.Syntax where
 
 
-import           Control.Category                             (Category (..),
-                                                               id, (.))
-import           Data.Char                                    (toLower)
-import           Data.Fix                                     (Fix (..), hylo)
-import           Data.Monoid                                  (Monoid (..),
-                                                               (<>))
-import           Data.Type.Equality                           hiding (apply)
-import           Data.Typeable                                (Typeable, eqT)
-import           Data.Void                                    (absurd)
-import           Prelude                                      hiding (id, (.))
+import           Control.Category               (Category (..), id, (.))
+import           Data.Char                      (toLower)
+import           Data.Fix                       (Fix (..), hylo)
+import           Data.Monoid                    (Monoid (..), (<>))
+import           Data.Type.Equality             hiding (apply)
+import           Data.Typeable                  (Typeable, eqT)
+import           Data.Void                      (absurd)
+import           GHC.TypeLits                   (Symbol)
+import           Prelude                        hiding (id, (.))
 import           "prettyclass" Text.PrettyPrint.HughesPJClass (Pretty (..),
                                                                comma, hsep,
                                                                parens,
-                                                               render,
                                                                prettyShow,
-                                                               punctuate, text,
+                                                               punctuate,
+                                                               render, text,
                                                                (<+>))
 import qualified "prettyclass" Text.PrettyPrint.HughesPJClass as PP
 
@@ -115,6 +114,17 @@ data Expr t a = Literal (Lit t)
 -- Values!
 --------------------------------------------------------------------------------
 newtype Value t = Value { unValue :: Fix (Expr t) }
+
+
+newtype Link (name :: Symbol) t = Link { unLink :: t }
+
+
+type NamedValue name t = Link name (Value t)
+
+
+linkAs :: forall name f x. Link name (Value (f x)) -> Value (f x)
+linkAs = unLink
+
 
 
 -- | Create a literal value from a couple valid types.

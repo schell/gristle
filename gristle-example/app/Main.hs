@@ -12,6 +12,7 @@ import           Control.Monad.IO.Class (MonadIO (..))
 import           Data.Function          (fix)
 import           Data.List              (nub)
 import           Data.String            (fromString)
+import           Data.Time.Clock        (getCurrentTime, diffUTCTime)
 import qualified Data.Vector.Storable   as S
 import           Data.Vector.Unboxed    (Unbox, Vector)
 import qualified Data.Vector.Unboxed    as V
@@ -22,7 +23,7 @@ import           Foreign.Ptr
 import           Foreign.Storable
 import           Graphics.GL.Core33
 import           Graphics.GL.Types
-import           SDL hiding (mult)
+import           SDL                    hiding (mult)
 
 import           Gristle
 import           Gristle.Syntax
@@ -35,7 +36,7 @@ import           TH
 
 
 passthruVert
-  :: Value (Out (Vec 4 Float))
+  :: NamedValue "color" (Out (Vec 4 Float))
   -> Value (In (Vec 2 Float))
   -> Value (In (Vec 4 Float))
   -> GLSL Vertex ()
@@ -47,13 +48,13 @@ passthruVert outColor pos inColor = do
 
 
 passthruFrag
-  :: Value (In (Vec 4 Float))
+  :: NamedValue "color" (In (Vec 4 Float))
   -> Value (Uniform Float)
+  -> Value (Out (Vec 4 Float))
   -> GLSL Fragment ()
-passthruFrag color utime = do
+passthruFrag color utime fragColor = do
   let r = abs $ sin $ readFrom utime
-  fragColor <- glFragColor
-  fragColor .= mult (vec4 1 1 1 r) (readFrom color)
+  fragColor .= mult (vec4 r 1 1 1) (readFrom color)
 
 
 --------------------------------------------------------------------------------
@@ -65,19 +66,23 @@ mkUpdateTimeUniform
   :: GLuint
   -- ^ The compiled shader.
   -> IO (Float -> IO ())
-mkUpdateTimeUniform = uniformUpdates passthruFrag
+mkUpdateTimeUniform :& () = uniformUpdates passthruFrag
 
 
 -- | Given the attachment location of
-bufferPosAttribute   :: GLuint -> GLuint -> Vector (V2 Float) -> IO ()
-bufferColorAttribute :: GLuint -> GLuint -> Vector (V4 Float) -> IO ()
-bufferPosAttribute :& bufferColorAttribute = attribBuffers passthruVert
+mkBufferPosAttribute   :: GLuint -> IO (GLuint -> Vector (V2 Float) -> IO ())
+mkBufferColorAttribute :: GLuint -> IO (GLuint -> Vector (V4 Float) -> IO ())
+mkBufferPosAttribute :& mkBufferColorAttribute :& () = attribBuffers passthruVert
 
 
-screenQuad :: Vector (V2 Float)
-screenQuad = V.fromList [ V2 0 0, V2 1 0, V2 1 1
-                        , V2 0 0, V2 1 1, V2 0 1
-                        ]
+screenQuad :: (Vector (V2 Float), Vector (V4 Float))
+screenQuad = (pos, color)
+  where pos = V.fromList [ V2 (-1) (-1), V2 1 (-1), V2 1    1
+                         , V2 (-1) (-1), V2 1    1, V2 (-1) 1
+                         ]
+        color = V.fromList [ V4 1 1 1 1, V4 1 1 0 1, V4 0 1 1 1
+                           , V4 1 1 1 1, V4 0 1 1 1, V4 1 0 1 1
+                           ]
 
 
 -- | Creates and returns an SDL2 window.
@@ -152,7 +157,7 @@ compileShader t = do
                                        , "is not yet supported"
                                        ]
   sh <- compileOGLShader (shaderLinkageSrc link) ctx
-  return (map valueToName $ shaderLinkageAttribs link, sh)
+  return (shaderLinkageAttribNames link, sh)
 
 
 compileOGLProgram
@@ -208,11 +213,9 @@ main = do
                          }
 
   w <- initSDL2Window cfg "gristle example"
-  eErrOrPgm <- runExceptT $ do
-    let vert = passthruVert . linkAs @"color"
-        frag = passthruFrag . linkAs @"color"
-    compileProgram =<< sequence [ compileShader vert
-                                , compileShader frag
+  eErrOrPgm <- runExceptT $
+    compileProgram =<< sequence [ compileShader passthruVert
+                                , compileShader passthruFrag
                                 ]
 
 
@@ -225,7 +228,19 @@ main = do
 
     Right program -> do
       glUseProgram program
+      updateTimeUniform <- mkUpdateTimeUniform program
+      bufferPosition    <- mkBufferPosAttribute program
+      bufferColor       <- mkBufferColorAttribute program
+      render <- withVAO $ \vao -> withBuffers 2 $ \[posBuf, colorBuf] -> do
+        start <- getCurrentTime
+        bufferPosition posBuf $ fst screenQuad
+        bufferColor colorBuf  $ snd screenQuad
+        return $ do
+          now <- getCurrentTime
+          updateTimeUniform $ realToFrac $ diffUTCTime now start
+          drawBuffer program vao GL_TRIANGLES 6
       fix $ \loop -> do
         _ <- pollEvents
+        render
         glSwapWindow w
         loop
