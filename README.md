@@ -31,15 +31,20 @@ In order to run this you need to have installed
 # Usage
 `stack install` generates two commands:
 
-    `gristle-exe`
+    gristle-exe
 
 and
 
-    `gristle-example-exe`
+    gristle-example-exe
 
-* `gristle-exe` generates the glsl code for the haskell code in `gristle/app/Main.hs`
+* `gristle-exe` runs the code written in `gristle/app/Main.hs`. Right now that code generates the glsl code for the haskell shader and outputs it on the terminal.
 
-* `gristle-example-exe` runs the code in `gristle-example/app/Main.hs`
+* `gristle-example-exe` runs the code written in `gristle-example/app/Main.hs`. Right now it runs a color gradient shader in a window.
+
+<img
+    src="https://i.imgur.com/FBjtSYn.png"
+    alt="window with gristle example running"
+/>
 
 ## see
 ```haskell
