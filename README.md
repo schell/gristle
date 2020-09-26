@@ -28,7 +28,7 @@ In order to run this you need to have installed
     * `ghc Setup.hs`
     * `stack install`
 
-# Usage <a href="usage"><a/>
+# Usage
 `stack install` generates two commands:
 
     `gristle-exe`
