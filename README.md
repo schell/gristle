@@ -8,7 +8,7 @@ use it as the bottom layer of rendering in [gelatin](https://github.com/schell/g
 2. [Installation](#install)
 3. [Usage](#use)
 
-# Prerequisites <a href="prereq"/>
+# Prerequisites <a href="prereq"><a/>
 
 In order to run this you need to have installed
 * Haskell
@@ -17,7 +17,7 @@ In order to run this you need to have installed
 * SDL2
     * [for linux] `sudo apt install libsdl2-dev`
 
-# Installation <a href="install"/>
+# Installation <a href="install"><a/>
 
 * clone this repo
     * `git clone https://github.com/schell/gristle.git`
@@ -27,8 +27,9 @@ In order to run this you need to have installed
     * `ghc Setup.hs`
     * `stack install`
 
-# Usage <a href="use"/>
-`stack install` generates two commands
+# Usage <a href="use"><a/>
+`stack install` generates two commands:
+
     `gristle-exe`
 
 and
@@ -36,6 +37,7 @@ and
     `gristle-example-exe`
 
 * `gristle-exe` generates the glsl code for the haskell code in `gristle/app/Main.hs`
+
 * `gristle-example-exe` runs the code in `gristle-example/app/Main.hs`
 
 ## see
