@@ -4,11 +4,12 @@ It was started at [BayHac2018](https://wiki.haskell.org/BayHac2018) and I hope t
 use it as the bottom layer of rendering in [gelatin](https://github.com/schell/gelatin).
 
 # Table of Contents
-1. [Prerequisites](#prereq)
-2. [Installation](#install)
-3. [Usage](#use)
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Usage](#usage)
+4. [Contribuitors](#contribuitors)
 
-# Prerequisites <a href="prereq"><a/>
+# Prerequisites <a href="prerequisites"><a/>
 
 In order to run this you need to have installed
 * Haskell
@@ -17,7 +18,7 @@ In order to run this you need to have installed
 * SDL2
     * [for linux] `sudo apt install libsdl2-dev`
 
-# Installation <a href="install"><a/>
+# Installation <a href="installation"><a/>
 
 * clone this repo
     * `git clone https://github.com/schell/gristle.git`
@@ -27,7 +28,7 @@ In order to run this you need to have installed
     * `ghc Setup.hs`
     * `stack install`
 
-# Usage <a href="use"><a/>
+# Usage <a href="usage"><a/>
 `stack install` generates two commands:
 
     `gristle-exe`
@@ -87,3 +88,8 @@ main = putStr $ unlines [ replicate 20 '-' ++ " vertex"
                         , glsl $ shader fragment
                         ]
 ```
+
+# Contribuitors <a href="contribuitors"><a/>
+
+* [Schell Carl Scivally](https://github.com/schell)
+* [Karen Palacio](https://github.com/karen-pal/)
