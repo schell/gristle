@@ -9,7 +9,7 @@ use it as the bottom layer of rendering in [gelatin](https://github.com/schell/g
 3. [Usage](#usage)
 4. [Contribuitors](#contribuitors)
 
-# Prerequisites <a href="prerequisites"><a/>
+# Prerequisites
 
 In order to run this you need to have installed
 * Haskell
@@ -18,7 +18,7 @@ In order to run this you need to have installed
 * SDL2
     * [for linux] `sudo apt install libsdl2-dev`
 
-# Installation <a href="installation"><a/>
+# Installation
 
 * clone this repo
     * `git clone https://github.com/schell/gristle.git`
@@ -89,7 +89,7 @@ main = putStr $ unlines [ replicate 20 '-' ++ " vertex"
                         ]
 ```
 
-# Contribuitors <a href="contribuitors"><a/>
+# Contribuitors
 
 * [Schell Carl Scivally](https://github.com/schell)
 * [Karen Palacio](https://github.com/karen-pal/)
