@@ -3,6 +3,40 @@ This is the spiritial successor to [ixshader](https://github.com/schell/ixshader
 It was started at [BayHac2018](https://wiki.haskell.org/BayHac2018) and I hope to
 use it as the bottom layer of rendering in [gelatin](https://github.com/schell/gelatin).
 
+# Table of Contents
+1. [Prerequisites](#prereq)
+2. [Installation](#install)
+3. [Usage](#use)
+
+# Prerequisites <a href="prereq"/>
+
+In order to run this you need to have installed
+* Haskell
+* Stack
+    * [Instructions](https://docs.haskellstack.org/en/stable/README/)
+* SDL2
+    * [for linux] `sudo apt install libsdl2-dev`
+
+# Installation <a href="install"/>
+
+* clone this repo
+    * `git clone https://github.com/schell/gristle.git`
+* enter the directory
+    * `cd gristle`
+* install the project
+    * `ghc Setup.hs`
+    * `stack install`
+
+# Usage <a href="use"/>
+`stack install` generates two commands
+    `gristle-exe`
+
+and
+
+    `gristle-example-exe`
+
+* `gristle-exe` generates the glsl code for the haskell code in `gristle/app/Main.hs`
+* `gristle-example-exe` runs the code in `gristle-example/app/Main.hs`
 
 ## see
 ```haskell
