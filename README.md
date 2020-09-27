@@ -3,6 +3,48 @@ This is the spiritial successor to [ixshader](https://github.com/schell/ixshader
 It was started at [BayHac2018](https://wiki.haskell.org/BayHac2018) and I hope to
 use it as the bottom layer of rendering in [gelatin](https://github.com/schell/gelatin).
 
+# Table of Contents
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Usage](#usage)
+4. [Contribuitors](#contribuitors)
+
+# Prerequisites
+
+In order to run this you need to have installed
+* Haskell
+* Stack
+    * [Instructions](https://docs.haskellstack.org/en/stable/README/)
+* SDL2
+    * [for linux] `sudo apt install libsdl2-dev`
+
+# Installation
+
+* clone this repo
+    * `git clone https://github.com/schell/gristle.git`
+* enter the directory
+    * `cd gristle`
+* install the project
+    * `ghc Setup.hs`
+    * `stack install`
+
+# Usage
+`stack install` generates two commands:
+
+    gristle-exe
+
+and
+
+    gristle-example-exe
+
+* `gristle-exe` runs the code written in `gristle/app/Main.hs`. Right now that code generates the glsl code for the haskell shader and outputs it on the terminal.
+
+* `gristle-example-exe` runs the code written in `gristle-example/app/Main.hs`. Right now it runs a color gradient shader in a window.
+
+<img
+    src="https://i.imgur.com/FBjtSYn.png"
+    alt="window with gristle example running"
+/>
 
 ## see
 ```haskell
@@ -51,3 +93,8 @@ main = putStr $ unlines [ replicate 20 '-' ++ " vertex"
                         , glsl $ shader fragment
                         ]
 ```
+
+# Contribuitors
+
+* [Schell Carl Scivally](https://github.com/schell)
+* [Karen Palacio](https://github.com/karen-pal/)
